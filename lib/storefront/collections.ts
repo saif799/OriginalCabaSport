@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { db, type Executor } from "@/lib/db";
 import { storefrontCollections, storefrontCollectionItems } from "@/lib/schema";
 import { asc, eq, inArray } from "drizzle-orm";
@@ -87,19 +88,11 @@ export async function getVisibleCollections(
     .filter((collection) => collection.products.length > 0);
 }
 
-/**
- * A Collection's own page. Null when the slug is unknown or the Collection is
- * *Hidden* — hidden means hidden, its URL stops resolving.
- *
- * An *Empty* Collection returns normally with an empty product list: a link
- * shared to a story outlives the stock it pointed at, and 404ing a link you
- * published yourself is worse than an honest empty state (ADR-0006).
- */
-export async function getCollectionBySlug(
+/** The query itself — the one implementation both paths below share. */
+async function readCollectionBySlug(
   slug: string,
-  exec: Executor = db,
+  e: typeof db,
 ): Promise<CollectionWithProducts | null> {
-  const e = exec as typeof db;
   const [collection] = await e
     .select()
     .from(storefrontCollections)
@@ -108,8 +101,41 @@ export async function getCollectionBySlug(
 
   if (!collection || !collection.isVisible) return null;
 
-  const picks = await resolvePicks([collection.id], exec);
+  const picks = await resolvePicks([collection.id], e);
   return toCollectionWithProducts(collection, picks.get(collection.id)!);
+}
+
+/**
+ * Request-scoped memoisation of the default path only. `exec` is deliberately
+ * NOT a cache key: keying on it would let the PGlite test database and the
+ * request database share entries. React's `cache` is per server request by
+ * construction, so a Stock Movement is still visible to the very next request.
+ * It memoises rejections too: a read that throws in `generateMetadata` is
+ * replayed to the body rather than retried.
+ *
+ * This covers the nested by-ids Product read too — `resolvePicks` runs inside
+ * the memoised call — so that read needs no cache of its own.
+ */
+const cachedCollectionBySlug = cache((slug: string) => readCollectionBySlug(slug, db));
+
+/**
+ * A Collection's own page. Null when the slug is unknown or the Collection is
+ * *Hidden* — hidden means hidden, its URL stops resolving.
+ *
+ * An *Empty* Collection returns normally with an empty product list: a link
+ * shared to a story outlives the stock it pointed at, and 404ing a link you
+ * published yourself is worse than an honest empty state (ADR-0006).
+ *
+ * A Collection page calls this twice — once for `generateMetadata`, once for
+ * the body — and the second call is free.
+ */
+export function getCollectionBySlug(
+  slug: string,
+  exec: Executor = db,
+): Promise<CollectionWithProducts | null> {
+  return exec === db
+    ? cachedCollectionBySlug(slug)
+    : readCollectionBySlug(slug, exec as typeof db);
 }
 
 function toCollectionWithProducts(

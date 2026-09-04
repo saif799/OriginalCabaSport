@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { db, type Executor } from "@/lib/db";
 import { shoes, shoeInventory, shoeModels, shoeImages } from "@/lib/schema";
 import { eq, gt, inArray, asc, sql, and, or, gte, lte, ilike, type SQL } from "drizzle-orm";
@@ -345,15 +346,11 @@ export async function getStorefrontProductsByIds(
     .filter((p): p is StorefrontProduct => p !== undefined);
 }
 
-/**
- * Deliberately does NOT filter archived: retiring a product removes it from
- * discovery, but anyone holding the link keeps a working, orderable page.
- */
-export async function getStorefrontProductDetail(
+/** The query itself — the one implementation both paths below share. */
+async function readProductDetail(
   shoeId: string,
-  exec: Executor = db,
+  e: typeof db,
 ): Promise<StorefrontProductDetail | null> {
-  const e = exec as typeof db;
   const rows = (await baseSelect(e)
     .where(eq(shoes.id, shoeId))
     .orderBy(asc(shoeInventory.size))) as Row[];
@@ -382,6 +379,32 @@ export async function getStorefrontProductDetail(
     images,
     sizes,
   };
+}
+
+/**
+ * Request-scoped memoisation of the default path only. `exec` is deliberately
+ * NOT a cache key: keying on it would let the PGlite test database and the
+ * request database share entries. React's `cache` is per server request by
+ * construction, so a Stock Movement is still visible to the very next request.
+ * It memoises rejections too: a read that throws in `generateMetadata` is
+ * replayed to the body rather than retried.
+ */
+const cachedProductDetail = cache((shoeId: string) => readProductDetail(shoeId, db));
+
+/**
+ * Deliberately does NOT filter archived: retiring a product removes it from
+ * discovery, but anyone holding the link keeps a working, orderable page.
+ *
+ * A product page calls this twice — once for `generateMetadata`, once for the
+ * body — and the second call is free.
+ */
+export function getStorefrontProductDetail(
+  shoeId: string,
+  exec: Executor = db,
+): Promise<StorefrontProductDetail | null> {
+  return exec === db
+    ? cachedProductDetail(shoeId)
+    : readProductDetail(shoeId, exec as typeof db);
 }
 
 export async function getStorefrontModels(): Promise<{ id: string; modelName: string }[]> {

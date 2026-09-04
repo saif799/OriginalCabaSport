@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { eq } from "drizzle-orm";
 import {
   shoeInventory,
   shoeModels,
@@ -188,5 +189,33 @@ describe("getCollectionBySlug", () => {
     const result = await getCollectionBySlug("empty", exec);
     expect(result?.slug).toBe("empty");
     expect(result?.products).toEqual([]);
+  });
+});
+
+/**
+ * The Collection half of the same constraint — see the note on the matching
+ * test in `products.test.ts` for what this style of test can and cannot catch.
+ */
+describe("getCollectionBySlug: an explicit executor bypasses memoisation", () => {
+  it("observes a row mutated between two reads through the same exec", async () => {
+    const shoe = await seedLiveShoe("White");
+    const collection = await seedCollection({ title: "Suggestions", slug: "suggestions" });
+    await pick(collection.id, shoe.id);
+
+    const before = await getCollectionBySlug("suggestions", exec);
+    expect(before?.title).toBe("Suggestions");
+    expect(before?.products.map((p) => p.shoeId)).toEqual([shoe.id]);
+
+    await db
+      .update(storefrontCollections)
+      .set({ title: "Renamed" })
+      .where(eq(storefrontCollections.id, collection.id));
+    await db.update(shoeInventory).set({ quantity: 0 }).where(eq(shoeInventory.shoeId, shoe.id));
+
+    const after = await getCollectionBySlug("suggestions", exec);
+    expect(after?.title).toBe("Renamed");
+    // The pick resolves through the nested by-ids Product read, so the whole
+    // composed result has to be fresh, not just the Collection row.
+    expect(after?.products).toEqual([]);
   });
 });

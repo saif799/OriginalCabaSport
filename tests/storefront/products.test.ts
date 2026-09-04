@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { eq } from "drizzle-orm";
 import { shoeInventory, shoeModels, shoes } from "@/lib/schema";
 import {
   getStorefrontProductDetail,
@@ -204,5 +205,34 @@ describe("archived products", () => {
     const detail = await getStorefrontProductDetail(retired.id, db as unknown as Executor);
     expect(detail?.shoeId).toBe(retired.id);
     expect(detail?.sizes.map((s) => s.size)).toEqual(["42"]);
+  });
+});
+
+/**
+ * `getStorefrontProductDetail` memoises its default path per request; an
+ * explicit `exec` must never be served from that cache. Asserted as the one
+ * externally observable consequence — a mutation between two reads is seen —
+ * rather than by counting queries or spying on the driver.
+ *
+ * Worth knowing what this does and does not catch: React's `cache` is an
+ * unconditional passthrough outside a server request, so under Vitest it never
+ * memoises anything. A hand-rolled memo that forgot `exec` fails here; one
+ * built on React's `cache` would slip past. The wrapper's `exec === db` branch
+ * is the real guarantee, and this is the backstop for replacing it.
+ */
+describe("getStorefrontProductDetail: an explicit executor bypasses memoisation", () => {
+  it("observes a row mutated between two reads through the same exec", async () => {
+    const exec = db as unknown as Executor;
+    const model = await seedModel("Air Force 1", 5000);
+    const shoe = await seedShoe(model.id, "White");
+    const inv = await seedInventory(shoe.id, "42", 3);
+
+    const before = await getStorefrontProductDetail(shoe.id, exec);
+    expect(before?.sizes[0].quantity).toBe(3);
+
+    await db.update(shoeInventory).set({ quantity: 0 }).where(eq(shoeInventory.id, inv.id));
+
+    const after = await getStorefrontProductDetail(shoe.id, exec);
+    expect(after?.sizes[0].quantity).toBe(0);
   });
 });
