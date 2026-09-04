@@ -39,9 +39,9 @@ export const shoes = pgTable(
     archived: boolean("archived").notNull().default(false),
   },
   // Postgres indexes primary keys and unique constraints automatically but
-  // never foreign keys. Every storefront read joins a colour variant to its
-  // Shoe Model, so without this the join is a sequential scan linear in the
-  // catalog size.
+  // never foreign keys. This one serves filtering Products by Shoe Model
+  // (`inArray(shoes.modelId, ...)`), NOT the shoes -> shoe_models join — that
+  // join probes the Shoe Model's primary key and was already indexed.
   (t) => [index("shoes_model_id_idx").on(t.modelId)],
 );
 
@@ -88,8 +88,9 @@ export const shoeInventory = pgTable(
     priceOverride: integer("price_override"),
     createdAt: date("created_at").notNull().defaultNow(),
   },
-  // The size rows of one colour variant — fetched on every product page and
-  // every catalog card. See the note on shoes_model_id_idx.
+  // Postgres does not index foreign keys. Without this, reading one Product's
+  // size rows sequentially scans every size row in the catalog — which is what
+  // both the product page and every catalog card do.
   (t) => [index("shoe_inventory_shoe_id_idx").on(t.shoeId)],
 );
 
@@ -284,8 +285,9 @@ export const shoeImages = pgTable(
     isPrimary: boolean("is_primary").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  // The gallery of one colour variant — every product page and every catalog
-  // card reads it. See the note on shoes_model_id_idx.
+  // Postgres does not index foreign keys. Without this, reading one Product's
+  // Shoe Image Gallery sequentially scans the whole table — on every product
+  // page and every catalog card.
   (t) => [index("shoe_images_shoe_id_idx").on(t.shoeId)],
 );
 
