@@ -140,6 +140,14 @@ function priceQualifyingShoeIds(
  * since they aggregate across a shoe's sizes. `includeOutOfStock` is threaded
  * through so these subqueries stay consistent with the main query's own
  * quantity condition.
+ *
+ * NOTE: nothing in production passes `filters` any more — every caller below
+ * reaches this with an empty set. The one caller that populated it was
+ * `GET /api/products`, deliberately deleted in issue #19 because it published
+ * the whole catalog unauthenticated and no page ever called it. The machinery
+ * is kept on purpose: it is correct and covered by tests, and moving the
+ * Storefront Filtering Tool's semantics server-side will give it a real caller
+ * again. Do not delete it as dead code.
  */
 function buildFilterConditions(
   e: typeof db,

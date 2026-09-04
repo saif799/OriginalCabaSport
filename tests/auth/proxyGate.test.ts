@@ -93,11 +93,20 @@ describe("the storefront's public API surface", () => {
     ).toBe(200);
   });
 
-  it("admits coverage lookups and catalog reads", async () => {
+  it("admits coverage lookups", async () => {
     expect((await proxy(request("/api/coverage?list=wilayas"))).status).toBe(
       200,
     );
-    expect((await proxy(request("/api/products"))).status).toBe(200);
+  });
+
+  /**
+   * The catalog routes used to be admitted here. They were deleted (issue #19)
+   * — the storefront pages read the database directly, so nothing called them,
+   * and leaving them open let anyone mirror the whole catalog with one curl.
+   */
+  it("does NOT admit the deleted catalog routes", async () => {
+    expect((await proxy(request("/api/products"))).status).toBe(401);
+    expect((await proxy(request("/api/products/AF1-WHITE"))).status).toBe(401);
   });
 
   /**

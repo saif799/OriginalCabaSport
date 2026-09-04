@@ -102,4 +102,4 @@ The state of being the signed-in owner. There is exactly one account — the own
 Everything that requires an Admin Session: the `/admin` dashboard and every API route except the Public API Surface. Closed by default — a route is part of the Admin Surface unless it has been explicitly named public.
 
 ### Public API Surface
-The short, explicitly enumerated set of API requests a customer's browser is allowed to make without an Admin Session: submitting a checkout, looking up delivery Coverage, and reading the public catalog. Membership is per **request** (path *and* method), not per path — the same path can be public for one method and part of the Admin Surface for another.
+The short, explicitly enumerated set of API requests a customer's browser is allowed to make without an Admin Session: submitting a checkout, looking up delivery Coverage, and the auth routes. Membership is per **request** (path *and* method), not per path — the same path can be public for one method and part of the Admin Surface for another.

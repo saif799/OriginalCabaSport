@@ -31,11 +31,6 @@ export function isLoginPath(pathname: string): boolean {
  *
  *   POST /api/order      the checkout submission itself.
  *   GET  /api/coverage   wilaya/commune/tarif lookup as the customer types.
- *   GET  /api/products*  public catalog JSON. No caller remains in this repo
- *                        (storefront pages moved to direct DB reads), but the
- *                        data is the same catalog anyone can browse, so gating
- *                        it would protect nothing and might break an external
- *                        consumer we cannot see from here.
  *
  * Method matters: /api/order also exports an admin-only GET and DELETE, so a
  * path-only allowlist here would hand anyone the ability to delete orders.
@@ -44,9 +39,6 @@ export function isPublicApiRequest(pathname: string, method: string): boolean {
   if (pathname.startsWith("/api/auth/")) return true;
   if (pathname === "/api/order") return method === "POST";
   if (pathname === "/api/coverage") return method === "GET";
-  if (pathname === "/api/products" || pathname.startsWith("/api/products/")) {
-    return method === "GET";
-  }
   return false;
 }
 
