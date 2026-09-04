@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   boolean,
   date,
+  index,
   integer,
   pgTable,
   timestamp,
@@ -22,19 +23,27 @@ export const shoeModels = pgTable("shoe_models", {
   archived: boolean("archived").notNull().default(false),
 });
 
-export const shoes = pgTable("shoes", {
-  id: varchar().primaryKey(),
-  modelId: uuid("model_id")
-    .notNull()
-    .references(() => shoeModels.id),
-  color: varchar("color").notNull(),
-  // barcode moved to inventory (size-specific)
-  // Optional colour-level overrides of the model's price. Null = inherit model.
-  priceOverride: integer("price_override"),
-  compareAtPriceOverride: integer("compare_at_price_override"),
-  // See shoeModels.archived — same flag, colour-variant scope.
-  archived: boolean("archived").notNull().default(false),
-});
+export const shoes = pgTable(
+  "shoes",
+  {
+    id: varchar().primaryKey(),
+    modelId: uuid("model_id")
+      .notNull()
+      .references(() => shoeModels.id),
+    color: varchar("color").notNull(),
+    // barcode moved to inventory (size-specific)
+    // Optional colour-level overrides of the model's price. Null = inherit model.
+    priceOverride: integer("price_override"),
+    compareAtPriceOverride: integer("compare_at_price_override"),
+    // See shoeModels.archived — same flag, colour-variant scope.
+    archived: boolean("archived").notNull().default(false),
+  },
+  // Postgres indexes primary keys and unique constraints automatically but
+  // never foreign keys. Every storefront read joins a colour variant to its
+  // Shoe Model, so without this the join is a sequential scan linear in the
+  // catalog size.
+  (t) => [index("shoes_model_id_idx").on(t.modelId)],
+);
 
 export const ordersTable = pgTable("orders", {
   id: varchar("id").primaryKey(),
@@ -66,17 +75,23 @@ export const ordersTable = pgTable("orders", {
   updatedAt: date("updated_at").notNull().defaultNow(),
 });
 
-export const shoeInventory = pgTable("shoe_inventory", {
-  id: uuid().primaryKey().defaultRandom(),
-  shoeId: varchar("shoe_id")
-    .notNull()
-    .references(() => shoes.id),
-  size: varchar("size").notNull(),
-  quantity: integer("quantity").notNull().default(0),
-  // Optional size-specific price override (DZD). Null = use shoe basePrice.
-  priceOverride: integer("price_override"),
-  createdAt: date("created_at").notNull().defaultNow(),
-});
+export const shoeInventory = pgTable(
+  "shoe_inventory",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    shoeId: varchar("shoe_id")
+      .notNull()
+      .references(() => shoes.id),
+    size: varchar("size").notNull(),
+    quantity: integer("quantity").notNull().default(0),
+    // Optional size-specific price override (DZD). Null = use shoe basePrice.
+    priceOverride: integer("price_override"),
+    createdAt: date("created_at").notNull().defaultNow(),
+  },
+  // The size rows of one colour variant — fetched on every product page and
+  // every catalog card. See the note on shoes_model_id_idx.
+  (t) => [index("shoe_inventory_shoe_id_idx").on(t.shoeId)],
+);
 
 export const LendedShoes = pgTable("lended_shoes", {
   id: uuid().primaryKey().defaultRandom(),
@@ -250,23 +265,29 @@ export const yalidineCommunes = pgTable("yalidine_communes", {
 // Storefront: shoe image gallery stored in Cloudflare R2.
 // Each row represents one uploaded image for a shoe color variant (shoeId).
 // ─────────────────────────────────────────────────────────────────────────────
-export const shoeImages = pgTable("shoe_images", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  shoeId: varchar("shoe_id")
-    .notNull()
-    .references(() => shoes.id, { onDelete: "cascade" }),
-  /** R2 object key (e.g. products/shoes/<shoeId>/<uuid>-filename.jpg) */
-  cloudflareImageId: varchar("cloudflare_image_id").notNull(),
-  /** Cached public CDN URL */
-  url: varchar("url").notNull(),
-  /** Accessibility / SEO alt text */
-  altText: varchar("alt_text"),
-  /** Integer sequence for carousel display order */
-  sortOrder: integer("sort_order").notNull().default(0),
-  /** Whether this is the hero thumbnail shown on catalog cards */
-  isPrimary: boolean("is_primary").notNull().default(false),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const shoeImages = pgTable(
+  "shoe_images",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shoeId: varchar("shoe_id")
+      .notNull()
+      .references(() => shoes.id, { onDelete: "cascade" }),
+    /** R2 object key (e.g. products/shoes/<shoeId>/<uuid>-filename.jpg) */
+    cloudflareImageId: varchar("cloudflare_image_id").notNull(),
+    /** Cached public CDN URL */
+    url: varchar("url").notNull(),
+    /** Accessibility / SEO alt text */
+    altText: varchar("alt_text"),
+    /** Integer sequence for carousel display order */
+    sortOrder: integer("sort_order").notNull().default(0),
+    /** Whether this is the hero thumbnail shown on catalog cards */
+    isPrimary: boolean("is_primary").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  // The gallery of one colour variant — every product page and every catalog
+  // card reads it. See the note on shoes_model_id_idx.
+  (t) => [index("shoe_images_shoe_id_idx").on(t.shoeId)],
+);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Storefront: admin-curated Collections ("Suggestions", "Offres", "Ja Morant").
