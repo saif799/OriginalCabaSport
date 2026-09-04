@@ -29,3 +29,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# one-off scratch scripts, run with npx tsx and not part of the app
+/.drift-tmp.ts
+/.explain-pick.ts
+/.explain-tmp.ts
