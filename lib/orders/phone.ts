@@ -1,22 +1,19 @@
-import { sql, type Column, type SQL } from "drizzle-orm";
-
 import { normalizeDigits } from "@/lib/format";
 
 /**
- * Customer phone numbers, reduced to a comparable key.
+ * Customer phone numbers, reduced to a canonical stored form and a comparable
+ * key.
  *
- * `orders.telephone` is stored exactly as it was typed. Only the storefront
- * checkout validates the shape (`0[5-7]\d{8}`); both admin forms store the raw
- * string — `components/sendShoeOrder.tsx` strips separators to *validate* and
- * then saves the untouched input, and `components/multipleItemsOrder.tsx`
- * validates nothing at all. The table really holds `"0770 205 202"`,
- * `" 0562 21 02 59"`, `"0559527433 "` and `"+213555605770"`, so string equality
- * is not a usable notion of "the same customer".
+ * Orders are stored with `canonicalPhone` applied (see `lib/orders/placeOrder`),
+ * so `orders.telephone` is a plain `0XXXXXXXXX` string and equality on it is a
+ * usable notion of "the same customer". That is what lets the Delivery Record
+ * look history up with an indexed `IN` rather than normalising a whole table.
  *
- * There is deliberately no normalisation on the write path: the phone is what
- * the courier calls, and rewriting stored order rows is a bigger decision than
- * this. Both readers that care normalise instead — see `phoneKeySql` for the
- * SQL mirror of this function.
+ * It was not always so: only the storefront checkout ever validated the shape,
+ * while both admin forms stored whatever was typed — the table held
+ * `"0770 205 202"`, `" 0562 21 02 59"`, `"0559527433 "` and `"+213555605770"`.
+ * Those rows were rewritten once by `lib/scripts/normalizeOrderPhones.ts`. Run
+ * it again if a write path is ever added that bypasses `canonicalPhone`.
  */
 
 /** Digits only, with Arabic-Indic numerals folded onto ASCII first. */
@@ -25,15 +22,8 @@ function digitsOf(raw: string): string {
 }
 
 /**
- * The same fold `normalizeDigits` performs, as a `translate` pair for the SQL
- * mirror below: Arabic-Indic (٠..٩) then Extended Arabic-Indic (۰..۹).
- */
-const ARABIC_INDIC_DIGITS = "٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹";
-const ASCII_DIGITS = "01234567890123456789";
-
-/**
- * The national 9-digit core of an Algerian number, or null if there is nothing
- * numeric to key on.
+ * The national core of an Algerian number — 9 digits for a mobile, 8 for a
+ * landline — or null if there is nothing numeric to key on.
  *
  * The order of the three strips is load-bearing. An Algiers landline is
  * `021 XX XX XX`, so once its leading zero is gone it *starts* with 213 while
@@ -59,30 +49,20 @@ export function phoneKey(raw: string | null | undefined): string | null {
 }
 
 /**
- * The SQL mirror of `phoneKey`, for the one caller that cannot normalise in
- * TypeScript: the orders search box filters and paginates in the database, so
- * the stored column has to be normalised there.
+ * The form a phone number is stored and displayed in: the national core with
+ * its leading zero back on. `+213 555 60 57 70` and `0555 60 57 70` both become
+ * `0555605770`.
  *
- * This is the only place the rule is duplicated, and it is the cheap side of
- * the duplication on purpose — the Delivery Record, which decides whether a
- * parcel gets sent, counts in TypeScript against `phoneKey` alone. If these two
- * ever drift, search misses a row; nothing renders the wrong colour.
+ * The leading zero is kept rather than storing the bare core, because this
+ * string is also what a human reads in the orders table and what the courier is
+ * handed — `555605770` is not a phone number anyone in Algeria would recognise.
  *
- * Keep the four steps below in the same order as `phoneKey`, for the same
- * reason (see its comment on the Algiers landline).
+ * Idempotent: applying it to an already-canonical number returns it unchanged,
+ * which is what makes it safe on both the write path and a re-run of the
+ * backfill. Returns null only when there was nothing numeric to work with, and
+ * callers keep the original in that case rather than storing nothing.
  */
-export function phoneKeySql(column: Column | SQL | SQL.Aliased): SQL<string> {
-  // `translate` before the strip, mirroring `digitsOf`: the strip deletes any
-  // non-ASCII digit, so folding has to happen first or an Arabic-Indic number
-  // would key to the empty string here while keying correctly in TypeScript.
-  const ascii = sql`translate(${column}, ${ARABIC_INDIC_DIGITS}, ${ASCII_DIGITS})`;
-  const digits = sql`regexp_replace(${ascii}, '[^0-9]', '', 'g')`;
-  const noIntlPrefix = sql`regexp_replace(${digits}, '^00', '')`;
-  const noCountryCode = sql`
-    CASE
-      WHEN length(${noIntlPrefix}) >= 11 AND ${noIntlPrefix} LIKE '213%'
-        THEN substring(${noIntlPrefix} from 4)
-      ELSE ${noIntlPrefix}
-    END`;
-  return sql<string>`regexp_replace(${noCountryCode}, '^0', '')`;
+export function canonicalPhone(raw: string | null | undefined): string | null {
+  const key = phoneKey(raw);
+  return key === null ? null : `0${key}`;
 }

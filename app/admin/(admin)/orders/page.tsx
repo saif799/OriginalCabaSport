@@ -12,7 +12,7 @@ import {
   storeSales,
 } from "@/lib/schema";
 import { READY_TO_SHIP_STATUS_ID } from "@/lib/orders/status";
-import { phoneKey, phoneKeySql } from "@/lib/orders/phone";
+import { canonicalPhone } from "@/lib/orders/phone";
 import { getDeliveryRecordsByOrder } from "@/lib/orders/deliveryRecord";
 import { OrdersTabs } from "./OrdersTabs";
 import { DataTable, type StatusOption } from "./data-table";
@@ -137,15 +137,15 @@ async function renderOnlineOrders({
       ? requestedStatus
       : READY_TO_SHIP_STATUS_ID;
 
-  // Stored phone numbers are not normalised (see lib/orders/phone.ts), so an
-  // ilike on the raw column cannot find `"0770 205 202"` from `0770205202`.
-  // The extra branch compares the normalised cores instead — still a contains
-  // match, so typing a partial number keeps working. Short queries are skipped:
-  // a 1-2 digit core matches most of the table and would drown the name search.
-  const phoneQuery = phoneKey(query);
+  // Stored numbers are canonical, so only the *query* needs normalising: typing
+  // `+213 555 60 57 70` or `0555 60 57 70` should find the stored `0555605770`.
+  // Still a contains match, so a partial number keeps working. Short queries are
+  // skipped — a 1-2 digit fragment matches most of the table and would drown the
+  // name search.
+  const phoneQuery = canonicalPhone(query);
   const normalizedPhoneSearch =
-    phoneQuery && phoneQuery.length >= 4
-      ? sql`${phoneKeySql(ordersTable.telephone)} LIKE ${`%${phoneQuery}%`}`
+    phoneQuery && phoneQuery.length >= 5
+      ? ilike(ordersTable.telephone, `%${phoneQuery}%`)
       : undefined;
 
   const search = searchPattern

@@ -3,6 +3,7 @@ import { LendedShoes, orderItems, ordersTable, shoeInventory } from "@/lib/schem
 import { applyMovement } from "@/lib/stock/movement";
 import { getProvider, type DeliveryProvider, type DeliveryProviderName } from "@/lib/delivery";
 import { and, eq, inArray, sql } from "drizzle-orm";
+import { canonicalPhone } from "@/lib/orders/phone";
 
 /**
  * The shape every order-creation form builds and `POST /api/order` accepts.
@@ -75,8 +76,8 @@ export async function placeOrder(
 ): Promise<PlaceOrderResult> {
   const {
     nom_client,
-    telephone,
-    telephone_2,
+    telephone: rawTelephone,
+    telephone_2: rawTelephone2,
     adresse,
     commune,
     code_wilaya,
@@ -96,9 +97,24 @@ export async function placeOrder(
   if (!selectedSizeShoeId || selectedSizeShoeId.length === 0) {
     return reject(400, "Selected size ID is required.");
   }
-  if (!telephone) {
+  if (!rawTelephone) {
     return reject(400, "Telephone is required.");
   }
+
+  // Store one spelling of a number, not whatever the form happened to send.
+  // Only the storefront checkout validates the shape; the two admin forms pass
+  // their raw input straight through, which is how the table came to hold
+  // "0770 205 202" and "+213555605770". Equality on this column is the Delivery
+  // Record's notion of "the same customer", so it has to mean something.
+  //
+  // `canonicalPhone` is idempotent, and returns null only for input with no
+  // digits at all — in that case the original is kept rather than a number
+  // being invented. The courier is handed the canonical form too: it is the
+  // better input, and it keeps the parcel matching what we stored.
+  const telephone = canonicalPhone(rawTelephone) ?? rawTelephone;
+  const telephone_2 = rawTelephone2
+    ? (canonicalPhone(rawTelephone2) ?? rawTelephone2)
+    : rawTelephone2;
   if (!adresse) {
     return reject(400, "Adresse (Address) is required.");
   }

@@ -1,9 +1,9 @@
-import { inArray } from "drizzle-orm";
+import { and, count, eq, inArray, sql } from "drizzle-orm";
 
 import { db, type Executor } from "@/lib/db";
 import { ordersTable } from "@/lib/schema";
 import { DELIVERED_STATUS_ID, RETURNED_STATUS_ID } from "@/lib/orders/status";
-import { phoneKey } from "@/lib/orders/phone";
+import { canonicalPhone } from "@/lib/orders/phone";
 
 /**
  * The Delivery Record: how every past order sharing one customer's phone number
@@ -74,23 +74,22 @@ export async function getDeliveryRecordsByOrder(
 
   const byOrder: Record<string, DeliveryRecord> = {};
   for (const order of orders) {
-    const key = phoneKey(order.telephone);
-    const record = key ? byPhone.get(key) : undefined;
+    const phone = canonicalPhone(order.telephone);
+    const record = phone ? byPhone.get(phone) : undefined;
     if (record) byOrder[order.id] = record;
   }
   return byOrder;
 }
 
 /**
- * Delivery Records for the given phone numbers, keyed by `phoneKey`. A key
- * absent from the map is `unknown` — the caller renders nothing for it.
+ * Delivery Records for the given phone numbers, keyed by canonical phone. A
+ * number absent from the map is `unknown` — the caller renders nothing for it.
  *
- * Counting happens here in TypeScript rather than in SQL so that `phoneKey` is
- * the single implementation of the matching rule on the path that decides
- * whether a parcel ships. The cost is fetching every resolved order rather than
- * a grouped count: ~490 rows of (phone, status id) today, which is one small
- * round trip. Revisit the shape past roughly 20k orders — at that point push
- * the grouping into SQL with `phoneKeySql` and accept the duplicated rule.
+ * One grouped query, reading only the rows that belong to the phones asked
+ * about: at most one row back per phone, so a 15-row page costs at most 15.
+ * This is only correct because `orders.telephone` is stored canonically — see
+ * the header of `lib/orders/phone.ts` for what guarantees that, and re-run the
+ * backfill there if a write path ever bypasses it.
  */
 export async function getDeliveryRecords(
   phones: ReadonlyArray<string | null | undefined>,
@@ -98,40 +97,45 @@ export async function getDeliveryRecords(
 ): Promise<Map<string, DeliveryRecord>> {
   const wanted = new Set<string>();
   for (const phone of phones) {
-    const key = phoneKey(phone);
-    if (key) wanted.add(key);
+    const canonical = canonicalPhone(phone);
+    if (canonical) wanted.add(canonical);
   }
   // No ready-to-ship rows on this page means no query at all.
   if (wanted.size === 0) return new Map();
 
+  // Counted in SQL rather than by tallying rows here: the two counters are the
+  // whole payload, so there is no reason to ship the underlying rows over the
+  // wire to add them up.
   const rows = await (exec as typeof db)
     .select({
       telephone: ordersTable.telephone,
-      statusId: ordersTable.statusId,
+      delivered: count(
+        sql`CASE WHEN ${eq(ordersTable.statusId, DELIVERED_STATUS_ID)} THEN 1 END`,
+      ),
+      returned: count(
+        sql`CASE WHEN ${eq(ordersTable.statusId, RETURNED_STATUS_ID)} THEN 1 END`,
+      ),
     })
     .from(ordersTable)
     .where(
-      inArray(ordersTable.statusId, [DELIVERED_STATUS_ID, RETURNED_STATUS_ID]),
-    );
-
-  const counts = new Map<string, { delivered: number; returned: number }>();
-  for (const row of rows) {
-    const key = phoneKey(row.telephone);
-    if (!key || !wanted.has(key)) continue;
-    const tally = counts.get(key) ?? { delivered: 0, returned: 0 };
-    if (row.statusId === DELIVERED_STATUS_ID) tally.delivered += 1;
-    else tally.returned += 1;
-    counts.set(key, tally);
-  }
+      and(
+        inArray(ordersTable.telephone, [...wanted]),
+        inArray(ordersTable.statusId, [
+          DELIVERED_STATUS_ID,
+          RETURNED_STATUS_ID,
+        ]),
+      ),
+    )
+    .groupBy(ordersTable.telephone);
 
   const records = new Map<string, DeliveryRecord>();
-  for (const [key, { delivered, returned }] of counts) {
+  for (const { telephone, delivered, returned } of rows) {
     const state = classifyRecord(delivered, returned);
-    // Unreachable today — a key only lands in `counts` by way of a delivered or
-    // returned row — but the map's contract is "present means it says
-    // something", and that has to survive the ladder changing.
+    // Unreachable while the query filters to delivered/returned rows, but the
+    // map's contract is "present means it says something", and that has to
+    // survive the ladder or the filter changing.
     if (state === "unknown") continue;
-    records.set(key, { state, delivered, returned });
+    records.set(telephone, { state, delivered, returned });
   }
   return records;
 }

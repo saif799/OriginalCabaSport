@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
 
-import { phoneKey } from "@/lib/orders/phone";
+import { canonicalPhone, phoneKey } from "@/lib/orders/phone";
 import { classifyRecord } from "@/lib/orders/deliveryRecord";
 
 /**
  * Every "real row" case below was taken from the live orders table, not
- * invented: the admin order forms store the phone exactly as it was typed, so
- * separators, a stray leading space and one `+213` number are all really in
- * there. Matching on the raw string finds none of them.
+ * invented: before `canonicalPhone` was applied on the write path, the admin
+ * forms stored the phone exactly as it was typed, so separators, a stray
+ * leading space and one `+213` number were all really in there.
+ *
+ * They are kept as test cases precisely because that data is now normalised —
+ * these are the inputs the normalisation has to keep getting right, on the
+ * write path and on any re-run of the backfill.
  */
 describe("phoneKey", () => {
   it("leaves a clean mobile as its 9-digit core", () => {
@@ -70,6 +74,54 @@ describe("phoneKey", () => {
     expect(phoneKey(undefined)).toBeNull();
     // A number that is nothing *but* a country code has no national part.
     expect(phoneKey("0")).toBeNull();
+  });
+});
+
+describe("canonicalPhone", () => {
+  it("is the form orders are stored and matched on", () => {
+    // Equality on this string is the Delivery Record's whole notion of "the
+    // same customer", so every spelling has to land on one value.
+    for (const spelling of [
+      "0555605770",
+      "+213555605770",
+      "00213555605770",
+      "213555605770",
+      "0555 60 57 70",
+      " 0555605770 ",
+      "555605770",
+      "٠٥٥٥٦٠٥٧٧٠",
+    ]) {
+      expect(canonicalPhone(spelling)).toBe("0555605770");
+    }
+  });
+
+  it("keeps the leading zero, because that is what a human and a courier read", () => {
+    // The bare 9-digit core is the match key, not a phone number anyone in
+    // Algeria would recognise — and this column is displayed and dialled.
+    expect(canonicalPhone("555605770")).not.toBe("555605770");
+    expect(canonicalPhone("555605770")).toBe("0555605770");
+  });
+
+  it("is idempotent, which is what makes the backfill re-runnable", () => {
+    for (const raw of ["0555605770", "+213555605770", "021 34 56 78", "067048001"]) {
+      const once = canonicalPhone(raw)!;
+      expect(canonicalPhone(once)).toBe(once);
+    }
+  });
+
+  it("leaves a malformed number alone rather than inventing digits", () => {
+    // Both really exist in the orders table. Rewriting them into a valid-looking
+    // number would silently attach one customer's history to another.
+    expect(canonicalPhone("067048001")).toBe("067048001");
+    expect(canonicalPhone("054048505")).toBe("054048505");
+    expect(canonicalPhone("021 34 56 78")).toBe("021345678");
+  });
+
+  it("returns null when there is nothing numeric, so callers keep the original", () => {
+    expect(canonicalPhone("")).toBeNull();
+    expect(canonicalPhone("Ahmed Benali")).toBeNull();
+    expect(canonicalPhone(null)).toBeNull();
+    expect(canonicalPhone(undefined)).toBeNull();
   });
 });
 

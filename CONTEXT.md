@@ -95,7 +95,14 @@ How every past order sharing one customer's phone number actually ended, read on
 
 Two exclusions are deliberate. A **Cancel does not count**: it was stopped before the parcel ever reached a courier, so it cost nothing, and counting it would condemn most repeat customers for something that never shipped. The **second phone number does not count**: it is the courier's fallback line, not the customer's identity, and two people sharing a household number would inherit each other's record. Orders still in flight have not resolved into anything and count as neither — which is also why the order being judged never counts towards its own record.
 
-Customers are matched on the **national core** of their phone number, not on the number as typed. The same person appears in the table as `0555605770`, `0555 60 57 70` and `+213555605770`; these are one customer.
+Customers are matched on their **Canonical Phone**: two orders belong to the same customer exactly when that value is equal.
+
+### Canonical Phone
+The single spelling an Algerian phone number is stored in — its national form, leading zero included: `0555605770`. `0555 60 57 70`, `+213555605770` and `555605770` are the same Canonical Phone; `021345678` is a landline's.
+
+It exists because a phone number is the only identity a customer has here — there is no customer record — so "the same customer" has to be decidable by comparing two strings. Every order is stored canonically at the moment it is placed, and the number handed to the courier is the same one, so what was dialled and what was matched can never disagree.
+
+Malformed numbers are canonicalised, never repaired: a number with too few digits keeps its own identity rather than being rounded into a valid-looking one that would attach one customer's history to another.
 
 ### Record State
 The four verdicts a Delivery Record resolves to, read top-down so that the worst applicable one wins:
