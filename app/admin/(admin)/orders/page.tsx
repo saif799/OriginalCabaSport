@@ -12,6 +12,11 @@ import {
   storeSales,
 } from "@/lib/schema";
 import { READY_TO_SHIP_STATUS_ID } from "@/lib/orders/status";
+import { phoneKey, phoneKeySql } from "@/lib/orders/phone";
+import {
+  getDeliveryRecords,
+  type DeliveryRecord,
+} from "@/lib/orders/deliveryRecord";
 import { OrdersTabs } from "./OrdersTabs";
 import { DataTable, type StatusOption } from "./data-table";
 import { StoreSalesTable } from "./StoreSalesTable";
@@ -135,11 +140,23 @@ async function renderOnlineOrders({
       ? requestedStatus
       : READY_TO_SHIP_STATUS_ID;
 
+  // Stored phone numbers are not normalised (see lib/orders/phone.ts), so an
+  // ilike on the raw column cannot find `"0770 205 202"` from `0770205202`.
+  // The extra branch compares the normalised cores instead — still a contains
+  // match, so typing a partial number keeps working. Short queries are skipped:
+  // a 1-2 digit core matches most of the table and would drown the name search.
+  const phoneQuery = phoneKey(query);
+  const normalizedPhoneSearch =
+    phoneQuery && phoneQuery.length >= 4
+      ? sql`${phoneKeySql(ordersTable.telephone)} LIKE ${`%${phoneQuery}%`}`
+      : undefined;
+
   const search = searchPattern
     ? or(
         ilike(ordersTable.nom_client, searchPattern),
         ilike(ordersTable.reference, searchPattern),
         ilike(ordersTable.telephone, searchPattern),
+        normalizedPhoneSearch,
       )
     : undefined;
 
@@ -200,9 +217,26 @@ async function renderOnlineOrders({
 
   const orders = rows.map(({ total: _total, ...order }) => order);
 
+  // The Delivery Record is a "should I send this?" signal, so it is resolved
+  // only for the rows where that question is still open. On a page with none —
+  // any other status filter — this costs no query at all.
+  const readyToShip = orders.filter(
+    (order) => order.statusId === READY_TO_SHIP_STATUS_ID,
+  );
+  const recordsByPhone = await getDeliveryRecords(
+    readyToShip.map((order) => order.telephone),
+  );
+  const deliveryRecords: Record<string, DeliveryRecord> = {};
+  for (const order of readyToShip) {
+    const key = phoneKey(order.telephone);
+    const record = key ? recordsByPhone.get(key) : undefined;
+    if (record) deliveryRecords[order.id] = record;
+  }
+
   return (
     <DataTable
       data={orders}
+      deliveryRecords={deliveryRecords}
       statuses={statuses}
       total={total}
       page={page}

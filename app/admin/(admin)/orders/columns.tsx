@@ -9,8 +9,10 @@ import { Badge } from "@/components/ui/badge";
 import { DataTableColumnHeader } from "./data-table-column-header";
 import { ordersTable } from "@/lib/schema";
 import { READY_TO_SHIP_STATUS_NAME } from "@/lib/orders/status";
+import type { DeliveryRecord } from "@/lib/orders/deliveryRecord";
 import type { OrderSort, OrderSortField, SortDirection } from "./params";
 import { OrderRowActions } from "./OrderRowActions";
+import { DeliveryRecordBadge } from "./DeliveryRecordBadge";
 
 export type OrderType = InferSelectModel<typeof ordersTable> & {
   statusName: string | null;
@@ -29,6 +31,12 @@ type BuildColumnsOptions = {
   onSort: (field: OrderSortField, direction: SortDirection) => void;
   /** Called after a row is deleted so the table can pull fresh server data. */
   onOrderDeleted: () => void;
+  /**
+   * Delivery Records by order id, resolved on the server. Only ready-to-ship
+   * rows are ever present: the record answers "should I send this?", which a
+   * delivered order has already answered. A missing id renders nothing.
+   */
+  deliveryRecords: Record<string, DeliveryRecord>;
 };
 
 /**
@@ -39,18 +47,23 @@ export function buildOrderColumns({
   sort,
   onSort,
   onOrderDeleted,
+  deliveryRecords,
 }: BuildColumnsOptions): ColumnDef<OrderType>[] {
   return [
     {
       accessorKey: "nom_client",
       header: "Client Information",
       cell: ({ row }) => {
+        // Sits under the phone number it was derived from, rather than in a
+        // column of its own that would be empty on every non-queue row.
+        const record = deliveryRecords[row.original.id];
         return (
           <>
             <div>{row.original.nom_client}</div>
             <div className="text-muted-foreground text-sm">
               {row.original.telephone}
             </div>
+            {record ? <DeliveryRecordBadge record={record} /> : null}
           </>
         );
       },

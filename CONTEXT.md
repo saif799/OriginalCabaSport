@@ -90,6 +90,20 @@ The set of Communes a given Delivery Provider serves in a Wilaya, together with 
 ### Tarif
 A Delivery Provider's price for one Delivery Mode, in integer DZD. **A desk Tarif of `0` means the mode is unavailable, never that it is free** — the two Wilayas priced that way are exactly the two containing no Stop Desk at all. A `0` Tarif and an unsupported mode are the same statement.
 
+### Delivery Record
+How every past order sharing one customer's phone number actually ended, read on the ready-to-ship queue to answer a single question: is this parcel worth sending? It counts only the two outcomes that cost money — a parcel that arrived, and a parcel that came back — and is a live reading of the order history, never a stored score.
+
+Two exclusions are deliberate. A **Cancel does not count**: it was stopped before the parcel ever reached a courier, so it cost nothing, and counting it would condemn most repeat customers for something that never shipped. The **second phone number does not count**: it is the courier's fallback line, not the customer's identity, and two people sharing a household number would inherit each other's record. Orders still in flight have not resolved into anything and count as neither — which is also why the order being judged never counts towards its own record.
+
+Customers are matched on the **national core** of their phone number, not on the number as typed. The same person appears in the table as `0555605770`, `0555 60 57 70` and `+213555605770`; these are one customer.
+
+### Record State
+The four verdicts a Delivery Record resolves to, read top-down so that the worst applicable one wins:
+- **Poor** — more parcels came back than arrived.
+- **Mixed** — as many came back as arrived, and at least one came back.
+- **Clean** — more arrived than came back.
+- **Unknown** — nothing has resolved either way. Distinct from a good record: a customer whose only past orders were cancelled or are still in flight has a history, but none of it says whether their parcels arrive. Unknown is shown as nothing at all, never as a verdict.
+
 ### Wilaya / Commune
 The two administrative levels an Algerian delivery address resolves to: the Wilaya (province, numbered 1–58) and the Commune within it. A Delivery Provider need not cover every Wilaya. Fees are quoted per Wilaya by both couriers; Stop Desk availability varies per Commune.
 

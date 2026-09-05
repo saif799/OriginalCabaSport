@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { buildOrderColumns, type OrderType } from "./columns";
+import type { DeliveryRecord } from "@/lib/orders/deliveryRecord";
 import { useUrlParams } from "@/lib/hooks/useUrlParams";
 import {
   ALL_STATUSES,
@@ -56,6 +57,8 @@ interface DataTableProps {
   defaultStatus: string;
   query: string;
   sort: OrderSort;
+  /** Delivery Records by order id — ready-to-ship rows only. See columns.tsx. */
+  deliveryRecords: Record<string, DeliveryRecord>;
 }
 
 export function DataTable({
@@ -68,6 +71,7 @@ export function DataTable({
   defaultStatus,
   query,
   sort,
+  deliveryRecords,
 }: DataTableProps) {
   const router = useRouter();
   const { isPending, setParams } = useUrlParams();
@@ -101,8 +105,9 @@ export function DataTable({
           });
         },
         onOrderDeleted: () => router.refresh(),
+        deliveryRecords,
       }),
-    [sort, setParams, router]
+    [sort, setParams, router, deliveryRecords]
   );
 
   const table = useReactTable({

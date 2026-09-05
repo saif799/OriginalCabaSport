@@ -21,6 +21,11 @@ const badgeVariants = cva(
           "border-transparent bg-green-400 text-primary-foreground [a&]:hover:bg-primary/90",
         onDelivery:
           "border-transparent bg-orange-400 text-primary-foreground [a&]:hover:bg-primary/90",
+        // Amber rather than reusing `onDelivery`: that one is the same family
+        // of orange but is named for an order status, and the Status column
+        // still uses it for exactly that. Two badges in one row meaning two
+        // different things should not share a variant name.
+        warning: "border-transparent bg-amber-500 text-white",
       },
     },
     defaultVariants: {
