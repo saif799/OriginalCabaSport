@@ -45,35 +45,48 @@ export const shoes = pgTable(
   (t) => [index("shoes_model_id_idx").on(t.modelId)],
 );
 
-export const ordersTable = pgTable("orders", {
-  id: varchar("id").primaryKey(),
-  reference: varchar("reference"),
-  nom_client: varchar("nom_client").notNull(),
-  telephone: varchar("telephone").notNull(),
-  telephone_2: varchar("telephone_2"),
-  adresse: varchar("adresse").notNull(),
-  commune: varchar("commune").notNull(),
-  code_wilaya: varchar("code_wilaya").notNull(),
-  montant: varchar("montant").notNull(),
-  remarque: varchar("remarque"),
+export const ordersTable = pgTable(
+  "orders",
+  {
+    id: varchar("id").primaryKey(),
+    reference: varchar("reference"),
+    nom_client: varchar("nom_client").notNull(),
+    telephone: varchar("telephone").notNull(),
+    telephone_2: varchar("telephone_2"),
+    adresse: varchar("adresse").notNull(),
+    commune: varchar("commune").notNull(),
+    code_wilaya: varchar("code_wilaya").notNull(),
+    montant: varchar("montant").notNull(),
+    remarque: varchar("remarque"),
 
-  type: integer("type").notNull(),
-  source: varchar("source").notNull().default("i"),
-  // Which delivery company this order was sent to. Existing rows default to DHD.
-  provider: varchar("provider").notNull().default("dhd"),
-  // Set when the order was placed BY a borrower (from their page): the sale is
-  // drawn from the borrower's held stock, so cancel/retour must also restore it.
-  // Null for normal owner orders.
-  borrowerId: uuid("borrower_id").references(() => borrower.id),
-  stop_desk: integer("stop_desk").notNull(),
-  statusId: uuid("status_id")
-    .notNull()
-    .references(() => stautsGroupsTable.id)
-    .default("404332b3-998f-498f-a325-3e4ecf6c3bbb"),
-  saif_paid: boolean("saif_paid").notNull().default(false),
-  createdAt: date("created_at").notNull().defaultNow(),
-  updatedAt: date("updated_at").notNull().defaultNow(),
-});
+    type: integer("type").notNull(),
+    source: varchar("source").notNull().default("i"),
+    // Which delivery company this order was sent to. Existing rows default to DHD.
+    provider: varchar("provider").notNull().default("dhd"),
+    // Set when the order was placed BY a borrower (from their page): the sale is
+    // drawn from the borrower's held stock, so cancel/retour must also restore it.
+    // Null for normal owner orders.
+    borrowerId: uuid("borrower_id").references(() => borrower.id),
+    stop_desk: integer("stop_desk").notNull(),
+    statusId: uuid("status_id")
+      .notNull()
+      .references(() => stautsGroupsTable.id)
+      .default("404332b3-998f-498f-a325-3e4ecf6c3bbb"),
+    saif_paid: boolean("saif_paid").notNull().default(false),
+    createdAt: date("created_at").notNull().defaultNow(),
+    updatedAt: date("updated_at").notNull().defaultNow(),
+  },
+  // The phone number is the customer's only identity here — there is no
+  // customer table — so it is a lookup key, not just a field. The Delivery
+  // Record probes it once per ready-to-ship row on the orders page
+  // (`telephone IN (...)`), which without this scans the whole table.
+  //
+  // Deliberately not composite with status_id: this serves any lookup of one
+  // customer's orders, and the status filter runs on the handful of rows the
+  // phone already narrowed to. It does NOT serve the orders search, which is a
+  // leading-wildcard ILIKE and cannot use a btree index at all.
+  (t) => [index("orders_telephone_idx").on(t.telephone)],
+);
 
 export const shoeInventory = pgTable(
   "shoe_inventory",
@@ -258,7 +271,7 @@ export const yalidineCommunes = pgTable("yalidine_communes", {
   hasStopDesk: integer("has_stop_desk").notNull().default(0),
   isDeliverable: integer("is_deliverable").notNull().default(1),
   expressDesk: integer("express_desk"), // stop-desk delivery price (DA)
-  stopdeskId: integer("stopdesk_id"),   // Yalidine center_id for parcel creation
+  stopdeskId: integer("stopdesk_id"), // Yalidine center_id for parcel creation
   syncedAt: timestamp("synced_at", { withTimezone: true }),
 });
 
@@ -283,7 +296,9 @@ export const shoeImages = pgTable(
     sortOrder: integer("sort_order").notNull().default(0),
     /** Whether this is the hero thumbnail shown on catalog cards */
     isPrimary: boolean("is_primary").notNull().default(false),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
   },
   // Postgres does not index foreign keys. Without this, reading one Product's
   // Shoe Image Gallery sequentially scans the whole table — on every product
@@ -319,8 +334,12 @@ export const storefrontCollections = pgTable("storefront_collections", {
   imageAlt: varchar("image_alt"),
   sortOrder: integer("sort_order").notNull().default(0),
   isVisible: boolean("is_visible").notNull().default(true),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
 });
 
 export const storefrontCollectionItems = pgTable(
@@ -334,9 +353,14 @@ export const storefrontCollectionItems = pgTable(
       .notNull()
       .references(() => shoes.id, { onDelete: "cascade" }),
     sortOrder: integer("sort_order").notNull().default(0),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
   },
   (t) => [
-    unique("storefront_collection_items_collection_shoe_unique").on(t.collectionId, t.shoeId),
+    unique("storefront_collection_items_collection_shoe_unique").on(
+      t.collectionId,
+      t.shoeId,
+    ),
   ],
 );
