@@ -10,38 +10,30 @@ import type { DeliveryRecord } from "@/lib/orders/deliveryRecord";
  * in the tooltip rather than the badge so the cell stays narrow.
  */
 
-const VARIANT = {
-  clean: "success",
-  mixed: "warning",
-  poor: "destructive",
-} as const;
-
-const LABEL = {
-  clean: "Clean",
-  mixed: "Mixed",
-  poor: "Poor",
-} as const;
-
-/**
- * `success` (green-400) and `warning` (amber-500) are both light enough that
- * their variants' near-white text lands around 2:1 against them — unreadable at
- * 10px. Darkened here rather than in the shared variants, whose look other
- * badges may be relying on. `destructive` is already white on a dark red.
- */
-const TEXT = {
-  clean: "text-green-950",
-  mixed: "text-amber-950",
-  poor: "",
+const STYLE = {
+  clean: {
+    variant: "success",
+    label: "Clean",
+    // `success` is bg-green-400 behind the variant's own near-white text, which
+    // lands around 2:1 — unreadable at 10px. Darkened here rather than in the
+    // shared variant, whose look other badges may be relying on. `warning`
+    // needs no such fix: it was added by this feature and is legible as it
+    // ships. `destructive` is already white on a dark red.
+    text: "text-green-950",
+  },
+  mixed: { variant: "warning", label: "Mixed", text: "" },
+  poor: { variant: "destructive", label: "Poor", text: "" },
 } as const;
 
 export function DeliveryRecordBadge({ record }: { record: DeliveryRecord }) {
   const { state, delivered, returned } = record;
+  const { variant, label, text } = STYLE[state];
 
   return (
     <Badge
-      variant={VARIANT[state]}
-      className={`mt-1 gap-1 px-1.5 py-0 text-[10px] font-semibold ${TEXT[state]}`}
-      title={`${LABEL[state]}: ${delivered} delivered, ${returned} returned`}
+      variant={variant}
+      className={`mt-1 gap-1 px-1.5 py-0 text-[10px] font-semibold ${text}`}
+      title={`${label}: ${delivered} delivered, ${returned} returned`}
     >
       <span>{delivered} ✓</span>
       <span aria-hidden="true">·</span>

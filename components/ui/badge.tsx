@@ -25,7 +25,12 @@ const badgeVariants = cva(
         // of orange but is named for an order status, and the Status column
         // still uses it for exactly that. Two badges in one row meaning two
         // different things should not share a variant name.
-        warning: "border-transparent bg-amber-500 text-white",
+        //
+        // Dark text, not the near-white the siblings use: amber-500 is light
+        // enough that white lands around 2:1, so a white default would be a
+        // variant every caller has to correct.
+        warning:
+          "border-transparent bg-amber-500 text-amber-950 [a&]:hover:bg-amber-500/90",
       },
     },
     defaultVariants: {

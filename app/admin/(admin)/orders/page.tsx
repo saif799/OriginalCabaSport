@@ -13,10 +13,7 @@ import {
 } from "@/lib/schema";
 import { READY_TO_SHIP_STATUS_ID } from "@/lib/orders/status";
 import { phoneKey, phoneKeySql } from "@/lib/orders/phone";
-import {
-  getDeliveryRecords,
-  type DeliveryRecord,
-} from "@/lib/orders/deliveryRecord";
+import { getDeliveryRecordsByOrder } from "@/lib/orders/deliveryRecord";
 import { OrdersTabs } from "./OrdersTabs";
 import { DataTable, type StatusOption } from "./data-table";
 import { StoreSalesTable } from "./StoreSalesTable";
@@ -220,18 +217,9 @@ async function renderOnlineOrders({
   // The Delivery Record is a "should I send this?" signal, so it is resolved
   // only for the rows where that question is still open. On a page with none —
   // any other status filter — this costs no query at all.
-  const readyToShip = orders.filter(
-    (order) => order.statusId === READY_TO_SHIP_STATUS_ID,
+  const deliveryRecords = await getDeliveryRecordsByOrder(
+    orders.filter((order) => order.statusId === READY_TO_SHIP_STATUS_ID),
   );
-  const recordsByPhone = await getDeliveryRecords(
-    readyToShip.map((order) => order.telephone),
-  );
-  const deliveryRecords: Record<string, DeliveryRecord> = {};
-  for (const order of readyToShip) {
-    const key = phoneKey(order.telephone);
-    const record = key ? recordsByPhone.get(key) : undefined;
-    if (record) deliveryRecords[order.id] = record;
-  }
 
   return (
     <DataTable

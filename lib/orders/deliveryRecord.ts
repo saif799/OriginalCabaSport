@@ -54,6 +54,34 @@ export function classifyRecord(
 }
 
 /**
+ * Delivery Records for the given orders, keyed by **order id** — the shape the
+ * table renders from. An id absent from the result is `unknown`, and renders
+ * nothing.
+ *
+ * Callers pass only the orders the record is wanted for (the ready-to-ship
+ * ones); phone normalisation and the keying both stay in here, so no caller
+ * needs to know that a Delivery Record is a per-phone idea underneath.
+ */
+export async function getDeliveryRecordsByOrder(
+  orders: ReadonlyArray<{ id: string; telephone: string }>,
+  exec: Executor = db,
+): Promise<Record<string, DeliveryRecord>> {
+  const byPhone = await getDeliveryRecords(
+    orders.map((order) => order.telephone),
+    exec,
+  );
+  if (byPhone.size === 0) return {};
+
+  const byOrder: Record<string, DeliveryRecord> = {};
+  for (const order of orders) {
+    const key = phoneKey(order.telephone);
+    const record = key ? byPhone.get(key) : undefined;
+    if (record) byOrder[order.id] = record;
+  }
+  return byOrder;
+}
+
+/**
  * Delivery Records for the given phone numbers, keyed by `phoneKey`. A key
  * absent from the map is `unknown` — the caller renders nothing for it.
  *

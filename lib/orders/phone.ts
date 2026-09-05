@@ -1,4 +1,4 @@
-import { sql, type SQL } from "drizzle-orm";
+import { sql, type Column, type SQL } from "drizzle-orm";
 
 import { normalizeDigits } from "@/lib/format";
 
@@ -23,6 +23,13 @@ import { normalizeDigits } from "@/lib/format";
 function digitsOf(raw: string): string {
   return normalizeDigits(raw).replace(/\D/g, "");
 }
+
+/**
+ * The same fold `normalizeDigits` performs, as a `translate` pair for the SQL
+ * mirror below: Arabic-Indic (٠..٩) then Extended Arabic-Indic (۰..۹).
+ */
+const ARABIC_INDIC_DIGITS = "٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹";
+const ASCII_DIGITS = "01234567890123456789";
 
 /**
  * The national 9-digit core of an Algerian number, or null if there is nothing
@@ -64,8 +71,12 @@ export function phoneKey(raw: string | null | undefined): string | null {
  * Keep the four steps below in the same order as `phoneKey`, for the same
  * reason (see its comment on the Algiers landline).
  */
-export function phoneKeySql(column: SQL | SQL.Aliased | unknown): SQL<string> {
-  const digits = sql`regexp_replace(${column}, '[^0-9]', '', 'g')`;
+export function phoneKeySql(column: Column | SQL | SQL.Aliased): SQL<string> {
+  // `translate` before the strip, mirroring `digitsOf`: the strip deletes any
+  // non-ASCII digit, so folding has to happen first or an Arabic-Indic number
+  // would key to the empty string here while keying correctly in TypeScript.
+  const ascii = sql`translate(${column}, ${ARABIC_INDIC_DIGITS}, ${ASCII_DIGITS})`;
+  const digits = sql`regexp_replace(${ascii}, '[^0-9]', '', 'g')`;
   const noIntlPrefix = sql`regexp_replace(${digits}, '^00', '')`;
   const noCountryCode = sql`
     CASE
