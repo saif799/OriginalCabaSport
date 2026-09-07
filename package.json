@@ -74,6 +74,7 @@
     "react-i18next": "^17.0.12",
     "recharts": "^2.15.4",
     "server-only": "^0.0.1",
+    "sharp": "^0.35.4",
     "sonner": "^2.0.7",
     "sql.js": "latest",
     "sqlite3": "latest",

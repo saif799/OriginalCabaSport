@@ -2,7 +2,8 @@ import { requireAdmin } from "@/lib/auth/guard";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { storefrontCollections } from "@/lib/schema";
-import { buildR2PublicUrl, deleteR2Object } from "@/lib/r2";
+import { buildR2PublicUrl } from "@/lib/r2";
+import { deleteRenditions } from "@/lib/images/transform";
 import { collectionSlug } from "@/lib/storefront/collections";
 import { and, eq, ne } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
@@ -10,7 +11,9 @@ import { revalidatePath } from "next/cache";
 type Params = { params: Promise<{ collectionId: string }> };
 
 /**
- * Best-effort removal of an R2 object we have just stopped pointing at.
+ * Best-effort removal of the R2 objects we have just stopped pointing at —
+ * three Renditions since ADR-0007, or the single file of an image uploaded
+ * before it.
  *
  * Unlike `DELETE /api/admin/images`, which deletes from R2 *first* and keeps
  * the row if that fails, a failed delete here must not fail the edit: the DB is
@@ -21,9 +24,9 @@ type Params = { params: Promise<{ collectionId: string }> };
 async function discardR2Object(key: string | null | undefined) {
   if (!key) return;
   try {
-    await deleteR2Object(key);
+    await deleteRenditions(key);
   } catch (error) {
-    console.warn(`Failed to delete replaced R2 object "${key}":`, error);
+    console.warn(`Failed to delete replaced R2 objects for "${key}":`, error);
   }
 }
 

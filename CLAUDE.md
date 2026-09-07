@@ -21,6 +21,7 @@ pnpm migrate             # drizzle-kit migrate
 
 npx tsx lib/seed/seedDeliveryData.ts   # one-shot seed of delivery coverage tables from the legacy root JSONs
 npx tsx lib/scripts/fixR2ImageUrls.ts   # dry-run rewrite of shoe_images.url onto R2_PUBLIC_URL (--apply to write)
+npx tsx lib/scripts/backfillImageRenditions.ts  # dry-run; --apply writes renditions, then --purge --apply deletes originals
 ```
 
 Tests are Vitest (`pnpm test` -> `vitest run`), living in `tests/` against a PGlite test DB ([tests/testDb.ts](tests/testDb.ts)). Coverage is partial: `placeOrder`, `lib/stock/movement`, storefront products, and a smoke test.
@@ -102,7 +103,11 @@ Prices are **integer DZD**, resolved 3 levels root-to-leaf via `resolveProductPr
 
 ### Image uploads (Cloudflare R2)
 
-[lib/r2.ts](lib/r2.ts) uses the S3 SDK against `<accountId>.r2.cloudflarestorage.com`. Two paths exist: `POST /api/r2/presigned-url` for direct browser upload, and `POST /api/r2/upload` as a server-side fallback (added because browser PUTs hit CORS/network errors). The S3 endpoint is confined to authenticated calls (put/delete/presign) — it cannot serve public GETs. Browser-facing URLs are built by `buildR2PublicUrl(key)` from **`R2_PUBLIC_URL`** (a custom domain bound to the bucket, or `https://pub-<hash>.r2.dev`), which throws rather than falling back if it is unset or still points at `.r2.cloudflarestorage.com`. `POST /api/admin/images` derives the stored `url` from the key server-side and ignores any client-supplied url, so the R2 object key in `shoeImages.cloudflareImageId` is the single source of truth. After changing `R2_PUBLIC_URL`, rewrite existing rows with `npx tsx lib/scripts/fixR2ImageUrls.ts --apply`.
+[lib/r2.ts](lib/r2.ts) uses the S3 SDK against `<accountId>.r2.cloudflarestorage.com`.
+
+Uploads are transformed at write time ([ADR-0007](docs/adr/0007-uploaded-images-are-transformed-at-write-time.md)): the browser downscales to 2000px ([lib/images/downscale.ts](lib/images/downscale.ts)), `POST /api/r2/upload` runs sharp, and three webp **Renditions** (400/800/1600) are stored — the uploaded file is not kept. `POST /api/r2/presigned-url` is now only the fallback for a browser that cannot downscale, and what it stores is a legacy single object.
+
+Renditions are addressed **by convention**, not recorded: the stored key ends `_800.webp` and the other two are that key with the width swapped ([lib/images/renditions.ts](lib/images/renditions.ts)). That is what lets `images.loader: "custom"` ([lib/images/loader.ts](lib/images/loader.ts)) resolve them from a `src` string alone. The ~327 rows uploaded before ADR-0007 have no renditions and pass through the loader untouched — every function in `renditions.ts` must stay total over them, which is what [tests/images/renditions.test.ts](tests/images/renditions.test.ts) pins down. A delete removes all three keys via `deleteRenditions`. The S3 endpoint is confined to authenticated calls (put/delete/presign) — it cannot serve public GETs. Browser-facing URLs are built by `buildR2PublicUrl(key)` from **`R2_PUBLIC_URL`** (a custom domain bound to the bucket, or `https://pub-<hash>.r2.dev`), which throws rather than falling back if it is unset or still points at `.r2.cloudflarestorage.com`. `POST /api/admin/images` derives the stored `url` from the key server-side and ignores any client-supplied url, so the R2 object key in `shoeImages.cloudflareImageId` is the single source of truth. After changing `R2_PUBLIC_URL`, rewrite existing rows with `npx tsx lib/scripts/fixR2ImageUrls.ts --apply`.
 
 ## Known rough edges
 

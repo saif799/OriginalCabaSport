@@ -34,3 +34,7 @@ next-env.d.ts
 /.drift-tmp.ts
 /.explain-pick.ts
 /.explain-tmp.ts
+
+# manifest written by lib/scripts/backfillImageRenditions.ts between its
+# --apply and --purge phases; local bookkeeping, not shared state
+/.image-backfill-manifest.json

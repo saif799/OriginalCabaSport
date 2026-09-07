@@ -1,20 +1,26 @@
 import { requireAdmin } from "@/lib/auth/guard";
 import { NextResponse } from "next/server";
-import { buildR2PublicUrl, getR2Client } from "@/lib/r2";
-import { PutObjectCommand } from "@aws-sdk/client-s3";
-import { v4 as uuidv4 } from "uuid";
+import { ACCEPTED_UPLOAD_TYPES, MAX_UPLOAD_BYTES } from "@/lib/images/source";
+import { writeRenditions } from "@/lib/images/transform";
 
-const ALLOWED_MIME_TYPES = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "image/gif",
-  "image/svg+xml",
-  "image/avif",
-]);
-
-const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB limit
-
+/**
+ * POST /api/r2/upload — the normal upload path since ADR-0007.
+ *
+ * It used to be the CORS fallback behind a presigned direct-to-R2 PUT, because
+ * a 3.8 MB camera photo does not fit through a Vercel Node function (4.5 MB
+ * body limit). The browser now downscales to ~250 KB before posting
+ * (lib/images/downscale.ts), which both removes that constraint and makes the
+ * upload itself ~10x faster on mobile upstream — so the bytes come here, sharp
+ * writes three Renditions, and the file that was posted is never stored.
+ *
+ * `/api/r2/presigned-url` survives as the fallback for a browser that cannot
+ * downscale; what it stores is a legacy single file with no Renditions, which
+ * the image loader serves untouched.
+ *
+ * Returns the DEFAULT_RENDITION_WIDTH key. That is what callers persist, and it
+ * is a real object — `POST /api/admin/images` and the collections PATCH both
+ * derive the stored url from it.
+ */
 export async function POST(request: Request) {
   const denied = await requireAdmin();
   if (denied) return denied;
@@ -31,55 +37,33 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!ALLOWED_MIME_TYPES.has(file.type)) {
+    if (!ACCEPTED_UPLOAD_TYPES.has(file.type)) {
       return NextResponse.json(
         { error: `File type '${file.type}' is not allowed.` },
         { status: 400 }
       );
     }
 
-    if (file.size > MAX_FILE_SIZE_BYTES) {
+    if (file.size > MAX_UPLOAD_BYTES) {
       return NextResponse.json(
-        { error: `File size exceeds limit of 10MB.` },
-        { status: 400 }
+        {
+          error:
+            "Image is too large to process here. It should have been resized in " +
+            "the browser first — reload the page and try again.",
+        },
+        { status: 413 }
       );
     }
 
-    const bucketName = process.env.R2_BUCKET_NAME;
-
-    if (!bucketName) {
-      return NextResponse.json(
-        { error: "R2_BUCKET_NAME is not configured on server" },
-        { status: 500 }
-      );
-    }
-
-    const sanitizeName = file.name.replace(/[^a-zA-Z0-9.-]/g, "_");
-    const cleanFolder = folder.replace(/^\/+|\/+$/g, "");
-    const key = cleanFolder ? `${cleanFolder}/${uuidv4()}-${sanitizeName}` : `${uuidv4()}-${sanitizeName}`;
-
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-
-    const client = getR2Client();
-    await client.send(
-      new PutObjectCommand({
-        Bucket: bucketName,
-        Key: key,
-        ContentType: file.type,
-        Body: buffer,
-      })
-    );
-
-    // Always the public base URL. The S3 API endpoint used for the PutObject above
-    // cannot serve public GETs, so it must never leak into a stored/rendered src.
-    const publicUrl = buildR2PublicUrl(key);
-
-    return NextResponse.json({
-      success: true,
-      key,
-      publicUrl,
+    const source = Buffer.from(await file.arrayBuffer());
+    const { key, url } = await writeRenditions(source, {
+      folder,
+      filename: file.name,
     });
+
+    // Only the DEFAULT_RENDITION_WIDTH key. The other two are derived from it by
+    // convention, so returning them would invite a caller to store them.
+    return NextResponse.json({ success: true, key, publicUrl: url });
   } catch (error: any) {
     console.error("Server upload error:", error);
     return NextResponse.json(

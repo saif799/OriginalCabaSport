@@ -11,9 +11,14 @@ A public-facing item available for browsing and purchasing. Corresponds to a spe
 A brand or style classification (e.g., "Air Force 1", "Yeezy 350"). Groups one or more color variants (`shoes`). On the storefront, switching colors navigates between products sharing the same Shoe Model.
 
 ### Shoe Image Gallery (`shoe_images`)
-Collection of uploaded Cloudflare R2 image assets associated with a specific color variant (`shoeId`).
+The ordered set of photographs belonging to a specific color variant (`shoeId`). One row is one *photograph*, not one file: each row is served as a set of Renditions.
 - **Primary Image (`isPrimary`)**: The designated hero thumbnail image used in product catalog cards and preview cards across the storefront.
 - **Sort Order (`sortOrder`)**: Integer sequence determining the display order of thumbnails inside the product page carousel.
+
+### Rendition
+One stored size of a photograph. Every uploaded photograph — a gallery image or a Collection image — is kept as a fixed set of Renditions, and the storefront serves whichever one fits the space it is drawn in. Renditions are the only form in which an image exists here: the file that was uploaded is **not retained** once they are produced, so there is no master to re-derive from and the set of sizes is not something to change casually (see ADR-0007).
+
+Images uploaded before ADR-0007 have no Renditions and are served as the single file they have always been. Both shapes coexist deliberately; neither is an error state.
 
 ### Variant Pricing
 The monetary price of a shoe item in Algerian Dinars (DZD / DA), resolved through three levels (see ADR-0002, superseding ADR-0001 §3):

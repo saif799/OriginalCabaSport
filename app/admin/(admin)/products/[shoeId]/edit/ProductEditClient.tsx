@@ -9,6 +9,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Image from "next/image";
 import { Trash2, Star, Archive, ArchiveRestore, GripVertical } from "lucide-react";
+import { ACCEPTED_UPLOAD_ACCEPT_ATTR } from "@/lib/images/source";
+import { uploadImageFile } from "@/lib/images/upload";
 
 type Shoe = {
   id: string;
@@ -159,68 +161,13 @@ export default function ProductEditClient({
 
     for (const file of fileArray) {
       try {
-        let key: string;
-        let publicUrl: string;
+        // Downscale, POST to /api/r2/upload for sharp to make the Renditions,
+        // fall back to a presigned PUT of the original. Shared with the
+        // Collections uploader so the two cannot drift (ADR-0007).
+        const { key, url: publicUrl } = await uploadImageFile(file, {
+          folder: `products/shoes/${shoe.id}`,
+        });
 
-        try {
-          // 1. Try presigned URL upload first
-          const presignRes = await fetch("/api/r2/presigned-url", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              filename: file.name,
-              contentType: file.type,
-              folder: `products/shoes/${shoe.id}`,
-            }),
-          });
-
-          if (!presignRes.ok) {
-            const errJson = await presignRes.json().catch(() => ({}));
-            throw new Error(errJson?.error || "Failed to get upload URL");
-          }
-
-          const presignedData = await presignRes.json();
-
-          // 2. Upload directly to R2
-          const uploadRes = await fetch(presignedData.uploadUrl, {
-            method: "PUT",
-            headers: { "Content-Type": file.type },
-            body: file,
-          });
-
-          if (!uploadRes.ok) {
-            throw new Error("Direct upload failed");
-          }
-
-          key = presignedData.key;
-          publicUrl = presignedData.publicUrl;
-        } catch (directErr) {
-          console.warn(
-            "Direct R2 presigned upload failed, falling back to server route:",
-            directErr
-          );
-
-          // Fallback: Server-side upload via FormData
-          const formData = new FormData();
-          formData.append("file", file);
-          formData.append("folder", `products/shoes/${shoe.id}`);
-
-          const serverRes = await fetch("/api/r2/upload", {
-            method: "POST",
-            body: formData,
-          });
-
-          if (!serverRes.ok) {
-            const errData = await serverRes.json().catch(() => ({}));
-            throw new Error(errData.error || "Server upload failed");
-          }
-
-          const serverData = await serverRes.json();
-          key = serverData.key;
-          publicUrl = serverData.publicUrl;
-        }
-
-        // 3. Register in DB
         const claimPrimary = !hasPrimary;
         const registerRes = await fetch("/api/admin/images", {
           method: "POST",
@@ -519,7 +466,7 @@ export default function ProductEditClient({
           <input
             ref={fileRef}
             type="file"
-            accept="image/*"
+            accept={ACCEPTED_UPLOAD_ACCEPT_ATTR}
             multiple
             className="hidden"
             onChange={(e) => {

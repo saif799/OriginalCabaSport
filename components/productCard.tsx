@@ -170,7 +170,10 @@ export default function ProductCard({
         className="size-16 shrink-0 overflow-hidden rounded-md border border-gray-200 sm:size-20"
       >
         {primaryImageUrl ? (
-          // next/image buys nothing here: images.unoptimized is on in next.config.
+          // Plain <img> on purpose. `primaryImageUrl` is the 800px Rendition
+          // (ADR-0007), which is already the right order of magnitude for a
+          // 64-80px admin thumbnail, and this list renders dozens of them —
+          // next/image would add a srcset apparatus for one fixed size.
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={primaryImageUrl}

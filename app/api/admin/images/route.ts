@@ -2,16 +2,21 @@ import { requireAdmin } from "@/lib/auth/guard";
 ﻿import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { shoeImages } from "@/lib/schema";
-import { buildR2PublicUrl, deleteR2Object } from "@/lib/r2";
+import { buildR2PublicUrl } from "@/lib/r2";
+import { deleteRenditions } from "@/lib/images/transform";
 import { eq } from "drizzle-orm";
 
 /**
  * POST /api/admin/images
- * Registers an image that was already uploaded directly to R2 via presigned URL.
+ * Registers an image already uploaded through POST /api/r2/upload (or, on the
+ * fallback path, a presigned PUT).
  * Body: { shoeId, cloudflareImageId, altText?, sortOrder?, isPrimary? }
  *
- * The stored `url` is always derived server-side from the R2 object key. A `url`
- * in the body is ignored — the key is the single source of truth, so changing
+ * `cloudflareImageId` is the DEFAULT_RENDITION_WIDTH key — a real object, and
+ * the one the other two Renditions are derived from by convention (ADR-0007).
+ *
+ * The stored `url` is always derived server-side from that key. A `url` in the
+ * body is ignored — the key is the single source of truth, so changing
  * R2_PUBLIC_URL (r2.dev -> custom domain) never leaves stale hosts in the DB.
  */
 export async function POST(request: Request) {
@@ -88,8 +93,9 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: "Image not found." }, { status: 404 });
     }
 
-    // Physical R2 deletion first — if this fails we keep the DB row
-    await deleteR2Object(image.cloudflareImageId);
+    // Physical R2 deletion first — if this fails we keep the DB row.
+    // Three objects since ADR-0007 (the Renditions), one for an older image.
+    await deleteRenditions(image.cloudflareImageId);
 
     // Remove the DB record
     await db.delete(shoeImages).where(eq(shoeImages.id, imageId));

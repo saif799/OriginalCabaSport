@@ -1,6 +1,12 @@
-import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import {
+  S3Client,
+  PutObjectCommand,
+  DeleteObjectCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+} from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { v4 as uuidv4 } from "uuid";
+import { buildSingleObjectKey } from "@/lib/images/renditions";
 
 export function getR2Client() {
   const accountId = process.env.R2_ACCOUNT_ID;
@@ -109,10 +115,10 @@ export async function getPresignedUploadUrl({
 
   const client = getR2Client();
 
-  // Clean extension and filename
-  const sanitizeName = filename.replace(/[^a-zA-Z0-9.-]/g, "_");
-  const cleanFolder = folder.replace(/^\/+|\/+$/g, "");
-  const key = cleanFolder ? `${cleanFolder}/${uuidv4()}-${sanitizeName}` : `${uuidv4()}-${sanitizeName}`;
+  // Shared with the rendition path so the two cannot drift, and so a file named
+  // "photo_800.webp" cannot be stored under a key the image loader would mistake
+  // for a rendition and rewrite into objects that were never written.
+  const key = buildSingleObjectKey(folder, filename);
 
   const command = new PutObjectCommand({
     Bucket: bucketName,
@@ -146,4 +152,34 @@ export async function deleteR2Object(key: string): Promise<void> {
   }
   const client = getR2Client();
   await client.send(new DeleteObjectCommand({ Bucket: bucketName, Key: key }));
+}
+
+/**
+ * Reads an object's size, and its bytes, back out of the bucket.
+ *
+ * Used by the ADR-0007 backfill, which measures a few hundred objects and then
+ * pulls the oversized ones. Deliberately the authenticated S3 endpoint rather
+ * than the public URL: pub-<hash>.r2.dev is rate-limited, and a throttled HEAD
+ * there answers with no content-length rather than an error — so an image would
+ * silently measure as 0 bytes and drop out of the backfill entirely.
+ */
+export async function getR2ObjectSize(key: string): Promise<number> {
+  const bucketName = process.env.R2_BUCKET_NAME;
+  if (!bucketName) {
+    throw new Error("R2_BUCKET_NAME is not configured in environment variables");
+  }
+  const client = getR2Client();
+  const res = await client.send(new HeadObjectCommand({ Bucket: bucketName, Key: key }));
+  return res.ContentLength ?? 0;
+}
+
+export async function getR2Object(key: string): Promise<Buffer> {
+  const bucketName = process.env.R2_BUCKET_NAME;
+  if (!bucketName) {
+    throw new Error("R2_BUCKET_NAME is not configured in environment variables");
+  }
+  const client = getR2Client();
+  const res = await client.send(new GetObjectCommand({ Bucket: bucketName, Key: key }));
+  if (!res.Body) throw new Error(`R2 object "${key}" has no body`);
+  return Buffer.from(await res.Body.transformToByteArray());
 }

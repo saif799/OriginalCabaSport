@@ -19,9 +19,13 @@ import { localePath, type Locale } from "@/i18n.config";
  * ART DIRECTION — two different photographs, not one image cropped twice: the
  * desktop frame is a wide court shot that has nothing left in a 9:16 crop, the
  * mobile frame is a portrait product shot. That is what <picture> is for, and
- * it is why this is not a next/image: `images.unoptimized` is set in
- * next.config.mjs, so <Image> would ship the full-size original and, with two
- * of them, download both. <picture> media queries fetch exactly one.
+ * it is why this is not a next/image: <Image> picks a *width*, never a
+ * different photograph, so a next/image hero would have to download both and
+ * hide one. <picture> media queries fetch exactly one.
+ *
+ * This is unrelated to ADR-0007. These are static derivatives in public/, cut
+ * by hand at build time; the custom image loader only rewrites the R2 keys of
+ * uploaded photographs and never sees them.
  *
  * TWO HEIGHT MODELS, one per frame, because the two photographs want opposite
  * things and an earlier single `h-[100svh]` + object-contain served neither —

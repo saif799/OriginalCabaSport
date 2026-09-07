@@ -2,14 +2,16 @@ import { requireAdmin } from "@/lib/auth/guard";
 import { NextResponse } from "next/server";
 import { getPresignedUploadUrl } from "@/lib/r2";
 
-const ALLOWED_MIME_TYPES = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "image/gif",
-  "image/svg+xml",
-  "image/avif",
-]);
+import { ACCEPTED_UPLOAD_TYPES } from "@/lib/images/source";
+
+/**
+ * The fallback path since ADR-0007, not the normal one.
+ *
+ * Uploads go through POST /api/r2/upload, where sharp writes three Renditions.
+ * This route only runs when the browser could not downscale the file, and what
+ * it stores is a legacy single object with the source extension and no
+ * Renditions — which lib/images/loader.ts serves untouched.
+ */
 
 export async function POST(request: Request) {
   const denied = await requireAdmin();
@@ -33,7 +35,7 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!ALLOWED_MIME_TYPES.has(contentType)) {
+    if (!ACCEPTED_UPLOAD_TYPES.has(contentType)) {
       return NextResponse.json(
         { error: `File type '${contentType}' is not allowed. Only images are permitted.` },
         { status: 400 }

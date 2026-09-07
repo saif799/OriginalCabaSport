@@ -10,6 +10,15 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  ACCEPTED_UPLOAD_ACCEPT_ATTR,
+  ACCEPTED_UPLOAD_TYPES,
+} from "@/lib/images/source";
+import {
+  UnsupportedImageError,
+  uploadImageFile,
+  type UploadedObject,
+} from "@/lib/images/upload";
 
 export interface ImageUploaderProps {
   /** Single URL or array of URLs for controlled usage */
@@ -26,8 +35,6 @@ export interface ImageUploaderProps {
   onUploadObjects?: (objects: UploadedObject[]) => void;
   /** Allow uploading multiple images (default: false) */
   multiple?: boolean;
-  /** Maximum file size allowed in Megabytes (default: 5) */
-  maxSizeMB?: number;
   /** Subfolder in R2 bucket (default: "uploads") */
   folder?: string;
   /** Disable uploading and removing files */
@@ -36,11 +43,11 @@ export interface ImageUploaderProps {
   className?: string;
 }
 
-/** One finished upload: the R2 object key and the public URL built from it. */
-export interface UploadedObject {
-  key: string;
-  url: string;
-}
+/**
+ * Re-exported so callers that already import it from here keep working. The
+ * definition lives with the upload itself, in lib/images/upload.ts.
+ */
+export type { UploadedObject };
 
 interface UploadingFile {
   id: string;
@@ -56,7 +63,6 @@ export function ImageUploader({
   onUploadComplete,
   onUploadObjects,
   multiple = false,
-  maxSizeMB = 5,
   folder = "uploads",
   disabled = false,
   className = "",
@@ -84,99 +90,10 @@ export function ImageUploader({
     [onChange, multiple]
   );
 
-  const uploadSingleFile = async (fileItem: UploadingFile): Promise<UploadedObject> => {
-    const { file } = fileItem;
-
-    // Helper: Server-side upload fallback via FormData
-    const uploadViaServer = async (): Promise<UploadedObject> => {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("folder", folder);
-
-      const res = await fetch("/api/r2/upload", {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || `Server upload failed (${res.status})`);
-      }
-
-      const data = await res.json();
-      setUploadingFiles((prev) =>
-        prev.map((item) =>
-          item.id === fileItem.id
-            ? { ...item, progress: 100, url: data.publicUrl }
-            : item
-        )
-      );
-      return { key: data.key, url: data.publicUrl };
-    };
-
-    try {
-      // Step 1: Request presigned URL
-      const res = await fetch("/api/r2/presigned-url", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          filename: file.name,
-          contentType: file.type,
-          folder,
-        }),
-      });
-
-      if (!res.ok) {
-        // Fall back to server upload route
-        return await uploadViaServer();
-      }
-
-      const { uploadUrl, key, publicUrl } = await res.json();
-
-      // Step 2: Upload file binary directly to Cloudflare R2 with XHR progress listener
-      return await new Promise<UploadedObject>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open("PUT", uploadUrl, true);
-        xhr.setRequestHeader("Content-Type", file.type);
-
-        xhr.upload.onprogress = (event) => {
-          if (event.lengthComputable) {
-            const percent = Math.round((event.loaded / event.total) * 100);
-            setUploadingFiles((prev) =>
-              prev.map((item) =>
-                item.id === fileItem.id ? { ...item, progress: percent } : item
-              )
-            );
-          }
-        };
-
-        xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            setUploadingFiles((prev) =>
-              prev.map((item) =>
-                item.id === fileItem.id
-                  ? { ...item, progress: 100, url: publicUrl }
-                  : item
-              )
-            );
-            resolve({ key, url: publicUrl });
-          } else {
-            // Non-200 status -> try server fallback
-            uploadViaServer().then(resolve).catch(reject);
-          }
-        };
-
-        xhr.onerror = () => {
-          // Browser Network / CORS error -> fallback seamlessly to server route
-          uploadViaServer().then(resolve).catch(reject);
-        };
-
-        xhr.send(file);
-      });
-    } catch (err) {
-      return await uploadViaServer();
-    }
-  };
+  const patchUploadingFile = (id: string, patch: Partial<UploadingFile>) =>
+    setUploadingFiles((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, ...patch } : item))
+    );
 
   const handleFiles = async (files: FileList | File[]) => {
     if (disabled) return;
@@ -187,25 +104,18 @@ export function ImageUploader({
     // Filter to single file if multiple is false
     const selectedFiles = multiple ? fileArray : [fileArray[0]];
 
-    // Validate files
-    const validFiles: File[] = [];
-    const maxSizeBytes = maxSizeMB * 1024 * 1024;
+    // No size check here. `uploadImageFile` downscales first and picks the
+    // route that can carry the result, so the only thing worth rejecting up
+    // front is a file type sharp will not accept — and it reports that itself.
+    const accepted = selectedFiles.filter((file) => {
+      if (ACCEPTED_UPLOAD_TYPES.has(file.type)) return true;
+      toast.error(new UnsupportedImageError(file.name).message);
+      return false;
+    });
 
-    for (const file of selectedFiles) {
-      if (!file.type.startsWith("image/")) {
-        toast.error(`"${file.name}" is not an image file.`);
-        continue;
-      }
-      if (file.size > maxSizeBytes) {
-        toast.error(`"${file.name}" exceeds maximum size of ${maxSizeMB}MB.`);
-        continue;
-      }
-      validFiles.push(file);
-    }
+    if (accepted.length === 0) return;
 
-    if (validFiles.length === 0) return;
-
-    const newUploadItems: UploadingFile[] = validFiles.map((file) => ({
+    const newUploadItems: UploadingFile[] = accepted.map((file) => ({
       id: Math.random().toString(36).substring(2, 9),
       file,
       progress: 0,
@@ -219,7 +129,12 @@ export function ImageUploader({
     await Promise.all(
       newUploadItems.map(async (item) => {
         try {
-          uploaded.push(await uploadSingleFile(item));
+          const object = await uploadImageFile(item.file, {
+            folder,
+            onProgress: (progress) => patchUploadingFile(item.id, { progress }),
+          });
+          patchUploadingFile(item.id, { url: object.url });
+          uploaded.push(object);
         } catch (err: any) {
           const errMsg = err?.message || "Upload failed";
           toast.error(`Failed to upload ${item.file.name}: ${errMsg}`);
@@ -306,7 +221,7 @@ export function ImageUploader({
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/jpeg,image/png,image/webp,image/gif,image/svg+xml,image/avif"
+            accept={ACCEPTED_UPLOAD_ACCEPT_ATTR}
             multiple={multiple}
             onChange={handleInputChange}
             disabled={disabled}
@@ -321,7 +236,7 @@ export function ImageUploader({
                 Click to upload or drag & drop
               </p>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                PNG, JPG, WebP, GIF up to {maxSizeMB}MB
+                JPG, PNG, WebP or AVIF — resized in your browser before upload
               </p>
             </div>
           </div>
