@@ -126,3 +126,4 @@ Renditions are addressed **by convention**, not recorded: the stored key ends `_
 
 - **Issues and specs live in GitHub Issues**, driven by the `gh` CLI — see [docs/agents/issue-tracker.md](docs/agents/issue-tracker.md) and the label vocabulary in [docs/agents/triage-labels.md](docs/agents/triage-labels.md).
 - **[CONTEXT.md](CONTEXT.md) is the domain glossary** and `docs/adr/` holds accepted decisions. Read the ADRs covering an area before changing it, use the glossary's exact terms in issues/tests/proposals, and if a change contradicts an ADR say so explicitly rather than silently overriding it.
+- **`docs/perf/` holds dated performance baselines** — measured numbers for the storefront, each with the method needed to re-run it. They are diagnoses, not decisions: nothing there is binding, and a stale one is just an old measurement. Newest first: [baseline-2026-09-08.md](docs/perf/baseline-2026-09-08.md).
