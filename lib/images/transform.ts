@@ -16,9 +16,15 @@
  * than the marker.
  */
 
-import sharp from "sharp";
+import sharp, { type Sharp } from "sharp";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { buildR2PublicUrl, deleteR2Object, getR2Client } from "@/lib/r2";
+import {
+  reusesSourceAt,
+  triesLosslessEncode,
+  withinQualityBudget,
+  type SourceImage,
+} from "@/lib/images/source";
 import {
   DEFAULT_RENDITION_WIDTH,
   RENDITION_WIDTHS,
@@ -44,6 +50,57 @@ import {
  */
 const WEBP_QUALITY: Record<RenditionWidth, number> = { 400: 72, 800: 70, 1600: 68 };
 
+/**
+ * What the source is, as sharp reads it.
+ *
+ * `metadata()` reports the file as stored — dimensions before `.rotate()` has
+ * transposed them, plus the orientation tag that says it will. Both go through
+ * as they are: a source carrying a tag to bake in is never reused, so the width
+ * never has to be read the other way round. An unreadable width stays 0, which
+ * `reusesSourceAt` treats as "encode it", not as "fits".
+ */
+async function sourceShape(source: Buffer, pipeline: Sharp): Promise<SourceImage> {
+  const { width = 0, orientation, format, pages } = await pipeline.metadata();
+  return { bytes: source.length, width, orientation, format, pages };
+}
+
+/**
+ * The body to store at one width.
+ *
+ * The lossy encode always runs. It is the baseline every other candidate is
+ * measured against, and it is also the only thing that reads every pixel — a
+ * file whose header parses but whose body does not would otherwise be stored
+ * verbatim, three times, as three broken images.
+ *
+ * Then the better body wins if it is affordable: the source bytes where the
+ * encode would only have re-compressed them, or a lossless encode of a small
+ * png. Both are quality the upload came with; `withinQualityBudget` is what
+ * stops that quality from being paid for in bytes a phone has to download.
+ */
+async function renditionBody(
+  source: Buffer,
+  pipeline: Sharp,
+  shape: SourceImage,
+  width: RenditionWidth,
+): Promise<Buffer> {
+  const encode = (lossless: boolean) =>
+    pipeline
+      .clone()
+      .resize({ width, withoutEnlargement: true })
+      .webp({ quality: WEBP_QUALITY[width], effort: 4, lossless })
+      .toBuffer();
+
+  const lossy = await encode(false);
+
+  const preferred = reusesSourceAt(shape, width)
+    ? source
+    : triesLosslessEncode(shape)
+      ? await encode(true)
+      : null;
+
+  return preferred && withinQualityBudget(preferred.length, lossy.length) ? preferred : lossy;
+}
+
 export interface WrittenRenditions {
   /** The key stored on the row: the DEFAULT_RENDITION_WIDTH rendition, a real object. */
   key: string;
@@ -62,6 +119,10 @@ export interface WrittenRenditions {
  * renders `object-contain` and its component comment says it never crops, so
  * cropping at write time would break it, and upscaling a small source only
  * inflates bytes.
+ *
+ * An upload that is already small enough comes out the other side untouched —
+ * see `renditionBody`. Three keys are always written either way, because the
+ * key convention is what the loader resolves from.
  */
 export async function writeRenditions(
   source: Buffer,
@@ -79,15 +140,12 @@ export async function writeRenditions(
   // did this on the normal path, but the presigned fallback and the backfill
   // both hand us untouched originals.
   const pipeline = sharp(source).rotate();
+  const shape = await sourceShape(source, pipeline);
 
   const encoded = await Promise.all(
     RENDITION_WIDTHS.map(async (width) => ({
       width,
-      body: await pipeline
-        .clone()
-        .resize({ width, withoutEnlargement: true })
-        .webp({ quality: WEBP_QUALITY[width], effort: 4 })
-        .toBuffer(),
+      body: await renditionBody(source, pipeline, shape, width),
     })),
   );
 

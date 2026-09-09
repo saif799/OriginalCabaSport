@@ -22,6 +22,8 @@
  * presigned upload, which still works on a full-size original.
  */
 
+import { isAlreadySmall } from "@/lib/images/source";
+
 /** Long edge of the intermediate handed to sharp. 25% headroom over the 1600 rendition. */
 export const CLIENT_MAX_EDGE = 2000;
 
@@ -57,9 +59,17 @@ export async function downscaleForUpload(file: File): Promise<File> {
     const longEdge = Math.max(bitmap.width, bitmap.height);
     const scale = longEdge > CLIENT_MAX_EDGE ? CLIENT_MAX_EDGE / longEdge : 1;
 
-    // Already small and already webp: nothing to gain, and re-encoding would
-    // only lose a generation.
-    if (scale === 1 && file.type === "image/webp") return file;
+    // Nothing to resize, and little to gain. This step exists to keep a 3.8 MB
+    // camera photo off Algerian mobile upstream; on a file already under
+    // ALREADY_SMALL_BYTES it trades at most ~250 KB of that upstream for a
+    // generation of quality — and for a png, for the whole point of the
+    // lossless path in lib/images/transform.ts, which cannot preserve what the
+    // browser has already thrown away. An already-webp source is passed through
+    // at any size for the same reason: there is no format change left to make,
+    // and sharp will judge its size properly with the encode in front of it.
+    if (scale === 1 && (file.type === "image/webp" || isAlreadySmall(file.size))) {
+      return file;
+    }
 
     const width = Math.max(1, Math.round(bitmap.width * scale));
     const height = Math.max(1, Math.round(bitmap.height * scale));

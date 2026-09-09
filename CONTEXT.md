@@ -20,6 +20,9 @@ One stored size of a photograph. Every uploaded photograph — a gallery image o
 
 Images uploaded before ADR-0007 have no Renditions and are served as the single file they have always been. Both shapes coexist deliberately; neither is an error state.
 
+### Quality Budget
+What a generation of quality is worth in bytes, when a Rendition is produced. Every Rendition is encoded, and that encode is the baseline; where the upload itself is better to serve — its own bytes at a width that would not have resized them, or a lossless encode of a small `png` — that better body is stored instead, unless it costs more than the Quality Budget (`QUALITY_BUDGET_BYTES`, 50 KB) over the encode. So an image that is already small enough comes out of the pipeline untouched, and one whose re-encode would visibly lighten a page is always re-encoded. Distinct from **Already Small** (`ALREADY_SMALL_BYTES`, 300 KB), which is a batch line — what the backfill bothers to select, and what the browser bothers to downscale before upload — not a judgement about a stored file.
+
 ### Variant Pricing
 The monetary price of a shoe item in Algerian Dinars (DZD / DA), resolved through three levels (see ADR-0002, superseding ADR-0001 §3):
 - **Base Price (`shoeModels.basePrice`)**: The model's default price. Root of the resolution chain.

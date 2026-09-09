@@ -39,18 +39,13 @@ import path from "node:path";
 import { shoeImages, storefrontCollections } from "../schema";
 import { deleteR2Object, getR2Object, getR2ObjectSize } from "../r2";
 import { isRenditionRef } from "../images/renditions";
+import { ALREADY_SMALL_BYTES, isAlreadySmall } from "../images/source";
 import { writeRenditions } from "../images/transform";
 
 dotenv.config();
 
 const APPLY = process.argv.includes("--apply");
 const PURGE = process.argv.includes("--purge");
-
-/**
- * Only images above this are worth re-encoding. The hand-optimised rows sit at
- * 30-50 KB; the camera JPEGs start around 500 KB.
- */
-const MIN_BYTES = 300 * 1024;
 
 const MANIFEST = path.join(process.cwd(), ".image-backfill-manifest.json");
 
@@ -95,7 +90,11 @@ async function main() {
   for (const c of candidates) {
     try {
       const bytes = await getR2ObjectSize(c.key);
-      if (bytes >= MIN_BYTES) targets.push({ ...c, bytes });
+      // The same line the upload path passes an image through on: a row this
+      // run leaves alone is one a re-upload would leave alone too. Only images
+      // above it are worth re-encoding — the hand-optimised rows sit at
+      // 30-50 KB, the camera JPEGs start around 500 KB.
+      if (!isAlreadySmall(bytes)) targets.push({ ...c, bytes });
     } catch (error) {
       // Loud on purpose: a silently unmeasured image is one that quietly does
       // not get backfilled, and nothing downstream would ever notice.
@@ -106,7 +105,7 @@ async function main() {
   targets.sort((a, b) => b.bytes - a.bytes);
   const total = targets.reduce((sum, t) => sum + t.bytes, 0);
   console.log(
-    `\n${targets.length} images over ${kb(MIN_BYTES)}, ${(total / 1048576).toFixed(1)}MB in total:\n`,
+    `\n${targets.length} images over ${kb(ALREADY_SMALL_BYTES)}, ${(total / 1048576).toFixed(1)}MB in total:\n`,
   );
   for (const t of targets) console.log(`  ${kb(t.bytes).padStart(8)}  ${t.key}`);
 

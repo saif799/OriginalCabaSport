@@ -1,7 +1,7 @@
 # ADR 0007: Uploaded Images Are Transformed at Write Time
 
 ## Status
-Accepted.
+Accepted. Decision 8 and its two consequences were added after acceptance; nothing above them changed.
 
 ## Context
 
@@ -27,6 +27,7 @@ Both upload paths presigned and `PUT` browser→R2 directly, so no server code e
 5. **Renditions are addressed by convention, not recorded.** The stored key and url end `_800.webp`; `_400` and `_1600` are the same key with the width swapped. No schema change, no new table, no join.
 6. **`next/image` gets a custom loader** (`images.loader: "custom"`, `deviceSizes: [400, 800, 1600]`), which swaps that width. `images.unoptimized` is removed.
 7. **The same pipeline serves Collection images** (`storefrontCollections.imageKey`), which are the homepage.
+8. **A rendition is only re-encoded for the bytes it saves.** Every rendition is encoded as before, and that encode is the baseline. Where the upload itself is the better thing to serve — its own bytes at a width that would not have resized them, or a lossless encode of a small `png` — that body is stored *instead*, unless it costs more than a **Quality Budget** of 50 KB over the encode. So a hand-optimised 40 KB webp is stored exactly as uploaded, a logo keeps its flat colour instead of q70 artefacts around the type, and a 271 KB webp whose re-encode would save 78 KB is still re-encoded. The decision is made against the measured encode, not predicted from the source's size, because a byte ceiling large enough to cover "already small" is far larger than a rendition should ever weigh. The browser skips its own downscale on the same principle: a file under `ALREADY_SMALL_BYTES` (300 KB) that needs no resize is posted untouched, so sharp gets the original rather than a webp of it.
 
 The 116 oversized images are backfilled through the same entry point, selected by size rather than a hardcoded list, in two phases: derive and repoint, then purge the originals in a second run once the result has been eyeballed. The rows already under 300 KB are left alone — re-encoding them costs a generation of quality and saves nothing.
 
@@ -50,5 +51,13 @@ The 116 oversized images are backfilled through the same entry point, selected b
 - **`images.loaderFile` does not work on Turbopack**, which is what this project builds with. Next 16 applies it by aliasing `next/dist/shared/lib/image-loader`, and that alias only exists in the webpack config. `next build` still passes — the pages that render images are dynamic — and every image then throws `next-image-missing-loader` at render time. `next.config.mjs` re-creates the alias by hand under `turbopack.resolveAlias`; both halves are required, and both should be re-checked on a Next upgrade.
 
 - **A user filename can mimic a rendition, and is defused at key construction.** 43 existing rows end in `_<digits>.webp` from hand-optimising; none happens to use 400, 800 or 1600, which is the only reason the suffix rule is safe on the data already stored. New keys are not left to luck: `keyLeaf` strips a trailing `_400`/`_800`/`_1600` from every filename, on both the rendition path and the presigned fallback — otherwise uploading `photo_800.webp` through the fallback would store a key the loader rewrites into objects nobody wrote. `RENDITION_SUFFIX` also enumerates the three widths rather than matching any number. Adding a width to the set means re-checking both.
+
+- **A small upload can be stored as three identical objects.** A 40 KB webp narrower than 400 px is written unchanged to all three keys. That is deliberate: the convention is what the loader resolves from, so every key has to exist, and 120 KB of R2 — bounded by the budget at three times the encode plus 150 KB — is cheaper than the generation of quality the alternative spends. It also means the byte count of a rendition set is no longer a signal that a row was transformed; `isRenditionRef` on the key still is.
+
+- **Every rendition is encoded even when the encode is thrown away.** That is the price of measuring instead of predicting, and it buys something else: the encode is the only step that reads every pixel, so a file whose header parses but whose body does not still fails the upload rather than being stored verbatim as three broken images.
+
+- **Two thresholds, deliberately not one.** `ALREADY_SMALL_BYTES` (300 KB) is a batch line — what the backfill selects, what the browser bothers to downscale. `QUALITY_BUDGET_BYTES` (50 KB) is what a stored rendition may cost in exchange for its quality. Collapsing them would put a 271 KB body behind a key the pipeline exists to keep light.
+
+- **An animated webp is flattened, as a gif already was.** Reusing its bytes at the widths that fit while sharp flattens the one that does not would leave a single image that animates or not depending on the viewport, so animated sources are excluded from reuse entirely and every rendition is the first frame.
 
 - **This does not fix caching.** `r2.dev` ignores the `Cache-Control` now being written; it starts paying off the day a custom domain is bound to the bucket, which remains the next thing to do.
