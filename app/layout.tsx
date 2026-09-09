@@ -5,7 +5,7 @@ import { dir } from "i18next";
 // @ts-ignore - Next.js global stylesheet side-effect import is resolved at build time
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
-import { BRAND, SEO_KEYWORDS, SITE_URL } from "@/lib/storefront/seo";
+import { BRAND, SEO_KEYWORDS, SITE_URL, ogImages } from "@/lib/storefront/seo";
 import { LOCALE_TAGS } from "@/i18n.config";
 import { getRequestLocale, isStorefrontRequest } from "@/app/i18n/server";
 
@@ -87,11 +87,16 @@ export const metadata: Metadata = {
     url: SITE_URL,
     title: `${BRAND.name} — ${BRAND.tagline}`,
     description: BRAND.descriptionFr,
+    // The French card, to match the French copy above. Each storefront page
+    // overrides it with its own locale's; this is what /admin and any route
+    // that forgets to would otherwise share as nothing at all.
+    images: ogImages("fr"),
   },
   twitter: {
     card: "summary_large_image",
     title: `${BRAND.name} — ${BRAND.tagline}`,
     description: BRAND.descriptionFr,
+    images: ogImages("fr").map((image) => image.url),
   },
   robots: {
     index: true,

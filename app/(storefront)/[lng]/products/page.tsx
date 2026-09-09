@@ -8,7 +8,7 @@ import {
   breadcrumbJsonLd,
   itemListJsonLd,
   localeAlternates,
-  ogLocale,
+  socialMeta,
 } from "@/lib/storefront/seo";
 import { getT } from "@/app/i18n/server";
 import { isLocale } from "@/i18n.config";
@@ -26,12 +26,12 @@ export async function generateMetadata({ params }: Props) {
     title: t("catalog:metaTitle"),
     description: t("catalog:metaDescription", { brand: BRAND.name }),
     alternates: localeAlternates(lng, "/products"),
-    openGraph: {
-      locale: ogLocale(lng),
+    ...socialMeta({
+      lng,
       title: t("catalog:ogTitle", { brand: BRAND.name }),
       description: t("home:metaDescription", { brand: BRAND.name }),
-      url: localeAlternates(lng, "/products").canonical,
-    },
+      path: "/products",
+    }),
   };
 }
 

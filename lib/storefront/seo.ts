@@ -94,6 +94,95 @@ export function localeAlternates(lng: Locale, path = "/") {
   };
 }
 
+/**
+ * The share card. One static file per locale, cut by
+ * lib/scripts/generateBrandImages.ts and committed — see the header there for
+ * why this is a file on disk and not an `opengraph-image.tsx` route, and why
+ * it is a JPEG.
+ *
+ * Every storefront page that has no photograph of its own points at this, so a
+ * link pasted into WhatsApp, Messenger or a Facebook ad always resolves to
+ * something. The product page overrides it with the shoe's own images; nothing
+ * else does.
+ *
+ * The alt text is the one piece of copy in this file that is still written per
+ * locale here rather than in app/i18n/locales — the image it describes is
+ * baked, so the sentence has to match what was drawn into the pixels, not what
+ * a catalog says today.
+ */
+const OG_IMAGE_ALT: Record<Locale, string> = {
+  fr: "Original Caba Sport — chaussures de basketball 100% authentiques en Algérie, livraison 24-48h",
+  ar: "Original Caba Sport — أحذية باسكيت أصلية 100% في الجزائر، توصيل خلال 24-48 ساعة",
+};
+
+/**
+ * Relative on purpose: Next resolves it against `metadataBase` (the root
+ * layout), which is the one place SITE_URL is applied to metadata. Emitting an
+ * absolute URL here would produce a localhost og:image in any preview build
+ * whose NEXT_PUBLIC_SITE_URL is unset.
+ */
+export function ogImages(lng: Locale) {
+  return [
+    {
+      url: `/og/og-${lng}.jpg`,
+      width: 1200,
+      height: 630,
+      type: "image/jpeg",
+      alt: OG_IMAGE_ALT[lng],
+    },
+  ];
+}
+
+/**
+ * The `openGraph` + `twitter` half of a storefront page's metadata.
+ *
+ * It exists because Next replaces these blocks wholesale rather than merging
+ * them field by field: a page that declares `openGraph.title` drops the root
+ * layout's `type` and `siteName` with it, and one that declares no `twitter`
+ * block at all inherits the root's — which is French, and was captioning the
+ * Arabic store with French copy and the French share card. Both were silent.
+ *
+ * So every storefront page spreads this instead of hand-rolling the pair. The
+ * only page that passes its own `images` is the product page, whose own
+ * photographs beat the brand card.
+ *
+ * The brand card is appended to those photographs rather than replaced by
+ * them, and that is the point of the ordering: since ADR-0007 every uploaded
+ * image is a webp, and the scrapers that matter most here — WhatsApp above all,
+ * which is how a link actually travels in this market — are inconsistent about
+ * decoding one. A scraper walks the og:image list and takes the first it can
+ * render, so the shoe wins wherever webp works and the JPEG card catches the
+ * rest. Without it those clients show no preview at all.
+ */
+export function socialMeta(input: {
+  lng: Locale;
+  title: string;
+  description: string;
+  /** Unlocalised path, e.g. "/products" — the locale prefix is added here. */
+  path: string;
+  images?: { url: string; alt?: string }[];
+}) {
+  const images = [...(input.images ?? []), ...ogImages(input.lng)];
+
+  return {
+    openGraph: {
+      type: "website" as const,
+      siteName: BRAND.name,
+      locale: ogLocale(input.lng),
+      title: input.title,
+      description: input.description,
+      url: localePath(input.lng, input.path),
+      images,
+    },
+    twitter: {
+      card: "summary_large_image" as const,
+      title: input.title,
+      description: input.description,
+      images: images.map((image) => image.url),
+    },
+  };
+}
+
 /** Terms real buyers type in this market — used for the keywords meta and copy. */
 export const SEO_KEYWORDS = [
   "Original Caba Sport",

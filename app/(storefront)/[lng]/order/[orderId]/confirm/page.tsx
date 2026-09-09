@@ -5,8 +5,8 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { CheckCircle2, MessageCircle } from "lucide-react";
 import { formatDZD } from "@/lib/format";
-import { resolveProductPrice } from "@/lib/helpers";
 import PurchaseTracker from "@/components/storefront/PurchaseTracker";
+import { getPurchaseContents } from "@/lib/storefront/purchaseContents";
 import Ltr from "@/components/storefront/Ltr";
 import { getT } from "@/app/i18n/server";
 import { isLocale, localePath } from "@/i18n.config";
@@ -37,19 +37,12 @@ export default async function OrderConfirmPage({ params }: Props) {
 
   if (!order) notFound();
 
-  // The three price columns ride along purely for the Meta Purchase event —
-  // `order.montant` includes the DHD tarif, and the pixel reports merchandise
-  // value only. The joins were already here, so this costs nothing extra.
   const items = await db
     .select({
       inventoryId: shoeInventory.id,
       size: shoeInventory.size,
       color: shoes.color,
       modelName: shoeModels.modelName,
-      shoeId: shoes.id,
-      modelBasePrice: shoeModels.basePrice,
-      shoePriceOverride: shoes.priceOverride,
-      sizePriceOverride: shoeInventory.priceOverride,
     })
     .from(orderItems)
     .innerJoin(shoeInventory, eq(orderItems.shoeInventoryId, shoeInventory.id))
@@ -57,21 +50,17 @@ export default async function OrderConfirmPage({ params }: Props) {
     .innerJoin(shoeModels, eq(shoes.modelId, shoeModels.id))
     .where(eq(orderItems.orderId, orderId));
 
-  // Merchandise value for the pixel: the same 3-level resolution the
-  // storefront prices with, summed over the line items. Deliberately not
-  // `order.montant` — that carries the delivery tarif on top.
+  // Merchandise value for the pixel, resolved by the same helper the server's
+  // Conversions API call uses — the two events are deduplicated into one, so
+  // they must agree on what the sale was worth. A second query rather than
+  // more columns on the one above: the confirmation page is not a hot path,
+  // and one copy of the pricing rule is worth more than one round trip.
   const pixelId = process.env.FB_PIXEL_ID;
-  const pixelContents = items.map((item) => ({
-    id: item.shoeId,
-    quantity: 1,
-    item_price: resolveProductPrice(
-      item.modelBasePrice,
-      item.shoePriceOverride,
-      item.sizePriceOverride,
-    ),
-  }));
-  const pixelValue = pixelContents.reduce((sum, c) => sum + c.item_price, 0);
-  const pixelContentIds = [...new Set(pixelContents.map((c) => c.id))];
+  const {
+    contents: pixelContents,
+    contentIds: pixelContentIds,
+    value: pixelValue,
+  } = await getPurchaseContents(orderId);
 
   const total = formatDZD(Number(order.montant));
 

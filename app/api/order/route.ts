@@ -7,6 +7,9 @@ import { CANCELED_STATUS_ID } from "@/lib/orders/status";
 import { placeOrder, type OrderDraft } from "@/lib/orders/placeOrder";
 import { getProvider } from "@/lib/delivery";
 import { eq } from "drizzle-orm";
+import { after } from "next/server";
+import { capiSignalsFromRequest, sendPurchaseEvent } from "@/lib/storefront/capi";
+import { getPurchaseContents } from "@/lib/storefront/purchaseContents";
 
 export async function GET() {
   const denied = await requireAdmin();
@@ -30,6 +33,47 @@ export async function POST(request: Request) {
     }
 
     revalidateStockPaths(draft.borrowerId ?? undefined);
+
+    // Report the sale to Meta from the server, mirroring the browser Purchase
+    // that `PurchaseTracker` fires on the confirmation page. Storefront orders
+    // only: an order typed into an admin form did not come from an ad, and
+    // feeding it back would train delivery on traffic Meta never sent.
+    //
+    // `after()` runs this once the response is on its way, so the customer
+    // waits on the courier and the database, never on graph.facebook.com — but
+    // unlike a floating promise it keeps the serverless function alive until
+    // the call finishes.
+    if (draft.source === "storefront") {
+      const signals = capiSignalsFromRequest(request);
+      const orderId = result.orderId;
+      after(async () => {
+        // `sendPurchaseEvent` swallows its own failures, but the price lookup
+        // does not — and a thrown error here would be an unhandled rejection
+        // over an order that already succeeded.
+        try {
+          const { contents, contentIds, value, numItems } =
+            await getPurchaseContents(orderId);
+          await sendPurchaseEvent({
+            // The order id, so Meta dedupes this against the browser event.
+            eventId: orderId,
+            value,
+            contentIds,
+            contents,
+            numItems,
+            eventSourceUrl: signals.eventSourceUrl,
+            user: {
+              phone: draft.telephone,
+              fbp: signals.fbp,
+              fbc: signals.fbc,
+              clientIpAddress: signals.clientIpAddress,
+              clientUserAgent: signals.clientUserAgent,
+            },
+          });
+        } catch (capiError) {
+          console.error(`[capi] Purchase ${orderId} not reported:`, capiError);
+        }
+      });
+    }
 
     return Response.json({
       message: "Order created successfully",

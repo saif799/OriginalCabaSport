@@ -9,7 +9,7 @@ import {
   breadcrumbJsonLd,
   itemListJsonLd,
   localeAlternates,
-  ogLocale,
+  socialMeta,
 } from "@/lib/storefront/seo";
 import { getT } from "@/app/i18n/server";
 import { isLocale, localePath } from "@/i18n.config";
@@ -35,16 +35,12 @@ export async function generateMetadata({ params }: Props) {
     title: collection.title,
     description,
     alternates: localeAlternates(lng, path),
-    openGraph: {
-      locale: ogLocale(lng),
-      title: collection.title,
-      description,
-      url: localeAlternates(lng, path).canonical,
-      // No `images`: ADR-0006 pins the Collection image to exactly one
-      // consumer, the homepage card, so that changing that card's shape is the
-      // only thing that can change what the image has to be. A 1:1 tile is the
-      // wrong crop for a 1.91:1 share preview anyway.
-    },
+    // No `images` argument, so this gets the brand card rather than
+    // `collection.imageUrl`: ADR-0006 pins the Collection image to exactly one
+    // consumer, the homepage card, so that changing that card's shape is the
+    // only thing that can change what the image has to be. A 1:1 tile is the
+    // wrong crop for a 1.91:1 share preview anyway.
+    ...socialMeta({ lng, title: collection.title, description, path }),
   };
 }
 

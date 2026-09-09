@@ -16,8 +16,8 @@ import {
   breadcrumbJsonLd,
   faqJsonLd,
   localeAlternates,
-  ogLocale,
   productJsonLd,
+  socialMeta,
 } from "@/lib/storefront/seo";
 import { getT } from "@/app/i18n/server";
 import { isLocale, localePath, type Locale } from "@/i18n.config";
@@ -51,17 +51,21 @@ export async function generateMetadata({ params }: Props) {
     title: t("metaTitle", { name }),
     description,
     alternates: localeAlternates(lng, path),
-    openGraph: {
-      type: "website",
-      locale: ogLocale(lng),
+    // The shoe's own photographs, first. socialMeta appends the brand card
+    // behind them, so a shared product link is never a bare grey rectangle —
+    // whether the variant has no gallery row at all (rare but reachable:
+    // nothing requires an image before a product goes live) or the scraper
+    // cannot decode the webp.
+    ...socialMeta({
+      lng,
       title: `${name} | ${BRAND.name}`,
       description,
-      url: localePath(lng, path),
+      path,
       images: product.images.slice(0, 4).map((image) => ({
         url: image.url,
         alt: image.altText ?? name,
       })),
-    },
+    }),
   };
 }
 

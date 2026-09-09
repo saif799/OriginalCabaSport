@@ -6,7 +6,7 @@ import FaqSection from "@/components/storefront/FaqSection";
 import { getVisibleCollections } from "@/lib/storefront/collections";
 import JsonLd from "@/components/storefront/JsonLd";
 import { getStorefrontFaqs } from "@/lib/storefront/faq";
-import { BRAND, faqJsonLd, localeAlternates, ogLocale } from "@/lib/storefront/seo";
+import { BRAND, faqJsonLd, localeAlternates, socialMeta } from "@/lib/storefront/seo";
 import { getT } from "@/app/i18n/server";
 import { isLocale } from "@/i18n.config";
 
@@ -24,12 +24,12 @@ export async function generateMetadata({ params }: Props) {
     title: { absolute: t("metaTitle", { brand: BRAND.name }) },
     description: t("metaDescription", { brand: BRAND.name }),
     alternates: localeAlternates(lng, "/"),
-    openGraph: {
-      locale: ogLocale(lng),
+    ...socialMeta({
+      lng,
       title: t("ogTitle", { brand: BRAND.name }),
       description: t("metaDescription", { brand: BRAND.name }),
-      url: localeAlternates(lng, "/").canonical,
-    },
+      path: "/",
+    }),
   };
 }
 

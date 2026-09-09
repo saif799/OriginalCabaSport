@@ -22,6 +22,8 @@ pnpm migrate             # drizzle-kit migrate
 npx tsx lib/seed/seedDeliveryData.ts   # one-shot seed of delivery coverage tables from the legacy root JSONs
 npx tsx lib/scripts/fixR2ImageUrls.ts   # dry-run rewrite of shoe_images.url onto R2_PUBLIC_URL (--apply to write)
 npx tsx lib/scripts/backfillImageRenditions.ts  # dry-run; --apply writes renditions, then --purge --apply deletes originals
+npx tsx lib/scripts/generateBrandImages.ts      # re-cuts the share cards and site icons; commit the output
+npx tsx lib/scripts/capiSmoke.ts        # sends one test Purchase through lib/storefront/capi to Meta's Test events
 ```
 
 Tests are Vitest (`pnpm test` -> `vitest run`), living in `tests/` against a PGlite test DB ([tests/testDb.ts](tests/testDb.ts)). Coverage is partial: `placeOrder`, `lib/stock/movement`, storefront products, and a smoke test.
@@ -109,6 +111,14 @@ Uploads are transformed at write time ([ADR-0007](docs/adr/0007-uploaded-images-
 
 Renditions are addressed **by convention**, not recorded: the stored key ends `_800.webp` and the other two are that key with the width swapped ([lib/images/renditions.ts](lib/images/renditions.ts)). That is what lets `images.loader: "custom"` ([lib/images/loader.ts](lib/images/loader.ts)) resolve them from a `src` string alone. The ~327 rows uploaded before ADR-0007 have no renditions and pass through the loader untouched — every function in `renditions.ts` must stay total over them, which is what [tests/images/renditions.test.ts](tests/images/renditions.test.ts) pins down. A delete removes all three keys via `deleteRenditions`. The S3 endpoint is confined to authenticated calls (put/delete/presign) — it cannot serve public GETs. Browser-facing URLs are built by `buildR2PublicUrl(key)` from **`R2_PUBLIC_URL`** (a custom domain bound to the bucket, or `https://pub-<hash>.r2.dev`), which throws rather than falling back if it is unset or still points at `.r2.cloudflarestorage.com`. `POST /api/admin/images` derives the stored `url` from the key server-side and ignores any client-supplied url, so the R2 object key in `shoeImages.cloudflareImageId` is the single source of truth. After changing `R2_PUBLIC_URL`, rewrite existing rows with `npx tsx lib/scripts/fixR2ImageUrls.ts --apply`.
 
+### Metadata and share cards
+
+Titles, descriptions and JSON-LD are per-locale and already thorough; the helpers are in [lib/storefront/seo.ts](lib/storefront/seo.ts) and the prose lives in `app/i18n/locales/{ar,fr}/`, never as a French constant in the helper.
+
+- **`socialMeta()` is how a storefront page declares its `openGraph`/`twitter` pair** — don't hand-roll one. Next *replaces* those blocks rather than merging them, so a page that writes its own `openGraph.title` silently drops the root layout's `type` and `siteName`, and a page that writes no `twitter` block inherits the root's French one onto `/ar`. Both failures are invisible in the browser.
+- **The share cards are static files**, `public/og/og-{fr,ar}.jpg`, cut from the hero photograph by `lib/scripts/generateBrandImages.ts` along with `app/icon.png` / `app/apple-icon.png`. They are JPEG, not webp, and generated ahead of time rather than by an `opengraph-image.tsx` route, because the scraper that matters here is WhatsApp's. For the same reason `socialMeta()` **appends** the brand card after a product's own webp photographs instead of choosing between them: a scraper takes the first og:image it can decode, so the shoe wins where webp works and the JPEG catches the rest.
+- The type in those cards is drawn by librsvg through sharp using **system fonts** (Impact standing in for Anton, Segoe UI/Tahoma for Arabic) and is baked into the pixels — no font ships. Regenerating on a machine without them silently changes the artwork.
+
 ## Known rough edges
 
 - **`revalidatePath` targets must use the `/admin/...` paths.** Every call was repointed after the admin dashboard moved out of `/`; a bare `revalidatePath("/")` now refreshes the *storefront*, not the inventory listing. Storefront pages read the database directly in Server Components (there is no catalog API — the `/api/products*` routes were deleted in issue #19), so they need no revalidation — admin pages do.
@@ -118,9 +128,21 @@ Renditions are addressed **by convention**, not recorded: the stored key ends `_
 
 ## Environment
 
-`.env` at the repo root: `DATABASE_URL` (Neon), `NEXT_PUBLIC_DHD_API_KEY`, `YALIDINE_API_ID` / `YALIDINE_API_ID_TOKEN` / `YALIDINE_API_ID_URL` / `YALIDINE_FROM_WILAYA`, `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET_NAME` / `R2_PUBLIC_URL` (legacy `NEXT_PUBLIC_R2_PUBLIC_URL` is still read as a fallback), `NEXT_PUBLIC_BASE_URL`, `NEXT_PUBLIC_WHATSAPP_NUMBER`, `FB_PIXEL_ID`, plus the auth trio `ADMIN_PASSWORD` / `AUTH_SECRET` / `CRON_SECRET`. See [.env.example](.env.example) for the full list. `NEXT_PUBLIC_BASE_URL` now feeds SEO canonicals only — the storefront reads the database directly and has no catalog API to fetch.
+`.env` at the repo root: `DATABASE_URL` (Neon), `NEXT_PUBLIC_DHD_API_KEY`, `YALIDINE_API_ID` / `YALIDINE_API_ID_TOKEN` / `YALIDINE_API_ID_URL` / `YALIDINE_FROM_WILAYA`, `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET_NAME` / `R2_PUBLIC_URL` (legacy `NEXT_PUBLIC_R2_PUBLIC_URL` is still read as a fallback), `NEXT_PUBLIC_BASE_URL`, `NEXT_PUBLIC_WHATSAPP_NUMBER`, `FB_PIXEL_ID`, `CONVERSION_API_ACCESS_TOKEN` (+ optional `META_CAPI_TEST_EVENT_CODE`), plus the auth trio `ADMIN_PASSWORD` / `AUTH_SECRET` / `CRON_SECRET`. See [.env.example](.env.example) for the full list. `NEXT_PUBLIC_BASE_URL` now feeds SEO canonicals only — the storefront reads the database directly and has no catalog API to fetch.
 
 `FB_PIXEL_ID` is deliberately **not** `NEXT_PUBLIC_` and deliberately not an editable field on `/admin/settings` — `/admin` has no authentication, so a DB-backed pixel id would be a public write endpoint for anyone to repoint the storefront's tracking. It is read in [app/(storefront)/layout.tsx](<app/(storefront)/layout.tsx>) and passed down as a prop; unset means no tracking script renders at all. See the header comment on [components/storefront/PurchaseTracker.tsx](components/storefront/PurchaseTracker.tsx) for why Meta's revenue figure will not match `/admin/analytics`.
+
+### Meta reporting: two halves of one event
+
+The Pixel reports from the browser ([lib/storefront/pixel.ts](lib/storefront/pixel.ts) is the one place `window.fbq` is touched) and the Conversions API reports the same Purchase from the server ([lib/storefront/capi.ts](lib/storefront/capi.ts)), because ad blockers remove the browser half in a way that is not random — it skews toward the segments delivery is being trained on.
+
+**The deduplication contract is load-bearing.** Both halves send `event_id = ordersTable.id` (the courier's tracking number) with `event_name = "Purchase"`; Meta keeps the first arrival and drops the second for 48h. Send a different id, or omit it, and every storefront order is counted twice — which silently doubles reported ROAS. `value` must agree too, since which half lands first is a race, so both read it from [lib/storefront/purchaseContents.ts](lib/storefront/purchaseContents.ts) rather than resolving prices themselves.
+
+- The server half fires from `POST /api/order` inside `after()`, and **only when `draft.source === "storefront"`** — an order typed into an admin form did not come from an ad.
+- `value` is merchandise only, never `ordersTable.montant`: that carries the DHD tarif, which swings by wilaya and would have Meta bid on how far away a customer lives.
+- `capi.ts` swallows every failure and no-ops when `FB_PIXEL_ID` or `CONVERSION_API_ACCESS_TOKEN` is unset. An order must never fail because Meta returned a 500.
+- `_fbp` / `_fbc` are first-party cookies the pixel drops on our own domain, so the route reads them straight off the request — they are the strongest match signal and are sent unhashed. The phone is hashed, built on `phoneKey` so it yields the same `213…` string the browser hashes.
+- `META_CAPI_TEST_EVENT_CODE` routes events to Events Manager > Test events instead of live data. Must be empty in production.
 
 ## Working conventions (from AGENTS.md)
 
