@@ -209,8 +209,11 @@ function numericSizeCompare(a: string, b: string): number {
   return a.localeCompare(b);
 }
 
-async function fetchImagesByShoeId(shoeIds: string[], e: typeof db = db) {
-  const map = new Map<string, { url: string; altText: string | null }[]>();
+/** A shoeId's images, already in display order: primary, then sortOrder, then createdAt. */
+type ImageMap = Map<string, { url: string; altText: string | null }[]>;
+
+async function fetchImagesByShoeId(shoeIds: string[], e: typeof db = db): Promise<ImageMap> {
+  const map: ImageMap = new Map();
   if (shoeIds.length === 0) return map;
 
   const images = await e
@@ -276,8 +279,13 @@ function groupRows(rows: Row[]): Map<string, StorefrontProduct> {
   return grouped;
 }
 
-async function attachPrimaryImages(grouped: Map<string, StorefrontProduct>, e: typeof db = db) {
-  const imageMap = await fetchImagesByShoeId([...grouped.keys()], e);
+/**
+ * Split out from the fetch so a caller that already knows which shoeIds it
+ * wants can issue the image read *alongside* the row read instead of after it
+ * (issue #20). The map may carry entries for shoeIds that aren't in `grouped`;
+ * they are simply never looked up.
+ */
+function applyPrimaryImages(grouped: Map<string, StorefrontProduct>, imageMap: ImageMap) {
   for (const [shoeId, product] of grouped) {
     const imgs = imageMap.get(shoeId);
     if (imgs && imgs.length > 0) {
@@ -313,7 +321,11 @@ export async function getStorefrontProducts(opts?: {
     .orderBy(asc(shoes.id), asc(shoeInventory.size));
 
   const grouped = groupRows(rows as Row[]);
-  await attachPrimaryImages(grouped, e);
+  // The one image read still left behind an `await`, and correctly so: unlike
+  // the two reads below it is keyed by the shoeIds the row query *returned*,
+  // which nothing knew beforehand. A real dependency, not a construction
+  // artefact (issue #20).
+  applyPrimaryImages(grouped, await fetchImagesByShoeId([...grouped.keys()], e));
 
   let products = Array.from(grouped.values());
   if (!includeUnpriced) products = products.filter((p) => p.minPrice > 0);
@@ -326,7 +338,18 @@ export async function getStorefrontProducts(opts?: {
   return products;
 }
 
-/** Fetches a specific set of products, preserving the order of `shoeIds`. */
+/**
+ * Fetches a specific set of products, preserving the order of `shoeIds`.
+ *
+ * The image read is keyed by the `shoeIds` *argument*, not by what the row
+ * query returns, so the two are issued together rather than chained — one
+ * fewer round-trip on every Collection page and on the homepage grid
+ * (issue #20). The cost is a deliberate, bounded overread: images are fetched
+ * for ids the row query drops (an archived Product) or that don't exist at
+ * all, and those entries are discarded when the map is applied. Do not "fix"
+ * that by keying the fetch off `grouped` — that is exactly the chain this
+ * removes.
+ */
 export async function getStorefrontProductsByIds(
   shoeIds: string[],
   exec: Executor = db,
@@ -334,31 +357,43 @@ export async function getStorefrontProductsByIds(
   if (shoeIds.length === 0) return [];
   const e = exec as typeof db;
 
-  const rows = await baseSelect(e)
-    .where(and(notArchived(), inArray(shoes.id, shoeIds)))
-    .orderBy(asc(shoes.id), asc(shoeInventory.size));
+  const [rows, imageMap] = await Promise.all([
+    baseSelect(e)
+      .where(and(notArchived(), inArray(shoes.id, shoeIds)))
+      .orderBy(asc(shoes.id), asc(shoeInventory.size)),
+    fetchImagesByShoeId(shoeIds, e),
+  ]);
 
   const grouped = groupRows(rows as Row[]);
-  await attachPrimaryImages(grouped, e);
+  applyPrimaryImages(grouped, imageMap);
 
   return shoeIds
     .map((id) => grouped.get(id))
     .filter((p): p is StorefrontProduct => p !== undefined);
 }
 
-/** The query itself — the one implementation both paths below share. */
+/**
+ * The query itself — the one implementation both paths below share.
+ *
+ * Both reads are keyed by the `shoeId` argument, so they go out together: same
+ * trade as `getStorefrontProductsByIds` above, one round-trip instead of two.
+ * Here the wasted read is the 404 path, which fetches images for a shoeId that
+ * matched no rows.
+ */
 async function readProductDetail(
   shoeId: string,
   e: typeof db,
 ): Promise<StorefrontProductDetail | null> {
-  const rows = (await baseSelect(e)
-    .where(eq(shoes.id, shoeId))
-    .orderBy(asc(shoeInventory.size))) as Row[];
+  const [selected, imageMap] = await Promise.all([
+    baseSelect(e).where(eq(shoes.id, shoeId)).orderBy(asc(shoeInventory.size)),
+    fetchImagesByShoeId([shoeId], e),
+  ]);
+  const rows = selected as Row[];
 
   if (rows.length === 0) return null;
 
   const first = rows[0];
-  const images = (await fetchImagesByShoeId([shoeId], e)).get(shoeId) ?? [];
+  const images = imageMap.get(shoeId) ?? [];
 
   const sizes = rows
     .map((row) => ({

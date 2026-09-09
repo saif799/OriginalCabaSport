@@ -27,10 +27,20 @@ const dmMono = DM_Mono({
 // on <body>, outside any storefront subtree. Anything scoped lower would leave
 // them rendering Arabic text in a font that cannot draw it. globals.css maps
 // the --sf-font tokens onto it under html[lang="ar"].
+//
+// That reasoning is about CSS *scoping*, and it never required shipping the
+// files to Latin visitors: `preload: false` (issue #20) keeps the @font-face
+// declaration everywhere but drops the unconditional <link rel="preload">, so
+// a locale that never resolves a --sf-font token onto Cairo fetches none of
+// its glyph files. /ar still fetches them, on use. Do not restore the preload
+// as an obvious omission, and do not narrow the subsets instead — if a /fr
+// page fetches a Cairo file, the cause is a CSS rule resolving --sf-font onto
+// Cairo outside html[lang|="ar"]; fix the rule.
 const cairo = Cairo({
   subsets: ["arabic", "latin"],
   weight: ["400", "500"],
   variable: "--font-cairo",
+  preload: false,
 });
 
 // The one exception to "one typeface": the hero headline. DM Mono cannot carry

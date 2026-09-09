@@ -256,7 +256,14 @@ html[data-app='admin'] {
  *
  * The selector is [lang|="ar"], not [lang="ar"], because <html> carries the
  * full BCP-47 tag ("ar-DZ"). Specificity (0,1,1) beats the :root block above
- * even though both match the same element. */
+ * even though both match the same element.
+ *
+ * This rule is also the *only* thing that resolves anything onto Cairo, which
+ * is what lets app/layout.tsx declare Cairo without preloading it (issue #20):
+ * /fr matches nothing here and so fetches none of its files. The tail of the
+ * chain must therefore stay Arabic-capable — it is what draws Arabic in the
+ * window before Cairo arrives, and that window is now longer. Do not trim it
+ * to a bare sans-serif. */
 html[lang|='ar'] {
   --sf-font: var(--font-cairo), 'Noto Kufi Arabic', 'Segoe UI', sans-serif;
   --sf-font-display: var(--sf-font);

@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
-import { shoeInventory, shoeModels, shoes } from "@/lib/schema";
+import { shoeImages, shoeInventory, shoeModels, shoes } from "@/lib/schema";
 import {
   getStorefrontProductDetail,
   getStorefrontProducts,
   getStorefrontProductsByIds,
 } from "@/lib/storefront/products";
 import { createTestDb, type TestDb } from "../testDb";
+import { recordingExec } from "./recordingExec";
 import type { Executor } from "@/lib/db";
 
 let db: TestDb;
@@ -234,5 +235,141 @@ describe("getStorefrontProductDetail: an explicit executor bypasses memoisation"
 
     const after = await getStorefrontProductDetail(shoe.id, exec);
     expect(after?.sizes[0].quantity).toBe(0);
+  });
+});
+
+async function seedImage(shoeId: string, url: string, isPrimary = false, sortOrder = 0) {
+  await db.insert(shoeImages).values({
+    shoeId,
+    cloudflareImageId: `products/shoes/${shoeId}/${url}`,
+    url,
+    isPrimary,
+    sortOrder,
+  });
+}
+
+/**
+ * Issue #20: the row read and the image read are keyed by the same `shoeId`
+ * argument, so neither has to wait for the other. These pin the *ordering* of
+ * the query traffic — both reads started before either settled — which is what
+ * "they run concurrently" actually means here. Asserted on event order rather
+ * than wall-clock duration so it cannot flake in CI.
+ */
+describe("storefront reads issue their independent queries concurrently", () => {
+  it("getStorefrontProductsByIds starts the image read without waiting for the rows", async () => {
+    const model = await seedModel("Air Force 1", 5000);
+    const shoe = await seedShoe(model.id, "White");
+    await seedInventory(shoe.id, "42", 3);
+    await seedImage(shoe.id, "white.webp", true);
+
+    const { exec, log } = recordingExec(db);
+    const products = await getStorefrontProductsByIds([shoe.id], exec);
+
+    expect(products.map((p) => p.primaryImageUrl)).toEqual(["white.webp"]);
+    expect(log).toHaveLength(4);
+    // Two distinct queries, both started before either settled. Re-serialising
+    // yields ["start", "settle", ...] here and fails. Which of the two starts
+    // first is deliberately not pinned: that depends only on the order the
+    // arguments to Promise.all are evaluated in, not on the property at stake.
+    expect(log.slice(0, 2).map((e) => e.event)).toEqual(["start", "start"]);
+    expect(new Set(log.slice(0, 2).map((e) => e.index)).size).toBe(2);
+  });
+
+  it("getStorefrontProductDetail starts the image read without waiting for the rows", async () => {
+    const model = await seedModel("Air Force 1", 5000);
+    const shoe = await seedShoe(model.id, "White");
+    await seedInventory(shoe.id, "42", 3);
+    await seedImage(shoe.id, "white.webp", true);
+
+    const { exec, log } = recordingExec(db);
+    const detail = await getStorefrontProductDetail(shoe.id, exec);
+
+    expect(detail?.images.map((i) => i.url)).toEqual(["white.webp"]);
+    expect(log).toHaveLength(4);
+    expect(log.slice(0, 2).map((e) => e.event)).toEqual(["start", "start"]);
+    expect(new Set(log.slice(0, 2).map((e) => e.index)).size).toBe(2);
+  });
+});
+
+/**
+ * The image read is keyed by the *argument* ids, so it deliberately over-reads:
+ * it fetches images for ids the row query drops (archived) or never had (bogus).
+ * Those rows are discarded on attach. This pins that the widening stays invisible
+ * in the output — it is a bounded overread traded for a round-trip, not a leak.
+ */
+describe("the widened image read does not change what the reads return", () => {
+  it("keeps archived and unknown ids out of getStorefrontProductsByIds despite fetching their images", async () => {
+    const model = await seedModel("Air Force 1", 5000);
+    const live = await seedShoe(model.id, "White");
+    await seedInventory(live.id, "42", 3);
+    await seedImage(live.id, "white.webp", true);
+
+    const retired = await seedShoe(model.id, "Black", undefined, true);
+    await seedInventory(retired.id, "43", 3);
+    await seedImage(retired.id, "black.webp", true);
+
+    const products = await getStorefrontProductsByIds(
+      [retired.id, "no-such-shoe", live.id],
+      db as unknown as Executor,
+    );
+
+    expect(products.map((p) => p.shoeId)).toEqual([live.id]);
+    expect(products[0].primaryImageUrl).toBe("white.webp");
+  });
+
+  it("still returns null from getStorefrontProductDetail for an unknown shoeId", async () => {
+    expect(await getStorefrontProductDetail("no-such-shoe", db as unknown as Executor)).toBeNull();
+  });
+});
+
+/**
+ * Image order — primary first, then sortOrder, then createdAt — is the one
+ * piece of behaviour the widened image read is closest to disturbing: it now
+ * fetches several shoes' images in one pass keyed by argument ids, and the
+ * grouping that splits them per shoe runs against a longer result set. The
+ * ordering was previously unpinned by any test, so these seed *interleaved*
+ * shoes: rows for both come back in one ORDER BY, and a grouping that mixed
+ * them up or preserved the raw row order would show here.
+ */
+describe("image order survives the widened read", () => {
+  it("gives the product detail its images primary-first, then by sortOrder", async () => {
+    const model = await seedModel("Air Force 1", 5000);
+    const shoe = await seedShoe(model.id, "White");
+    await seedInventory(shoe.id, "42", 3);
+
+    // Seeded in an order that matches neither sortOrder nor primary-first.
+    await seedImage(shoe.id, "third.webp", false, 20);
+    await seedImage(shoe.id, "primary.webp", true, 99);
+    await seedImage(shoe.id, "second.webp", false, 10);
+
+    const detail = await getStorefrontProductDetail(shoe.id, db as unknown as Executor);
+    expect(detail?.images.map((i) => i.url)).toEqual([
+      "primary.webp",
+      "second.webp",
+      "third.webp",
+    ]);
+  });
+
+  it("picks each product's own primary as its thumbnail when several are read at once", async () => {
+    const model = await seedModel("Air Force 1", 5000);
+    const white = await seedShoe(model.id, "White");
+    await seedInventory(white.id, "42", 3);
+    const black = await seedShoe(model.id, "Black");
+    await seedInventory(black.id, "43", 3);
+
+    await seedImage(white.id, "white-alt.webp", false, 0);
+    await seedImage(black.id, "black-primary.webp", true, 50);
+    await seedImage(white.id, "white-primary.webp", true, 50);
+    await seedImage(black.id, "black-alt.webp", false, 0);
+
+    const products = await getStorefrontProductsByIds(
+      [black.id, white.id],
+      db as unknown as Executor,
+    );
+
+    expect(products.map((p) => [p.shoeId, p.primaryImageUrl])).toEqual([
+      [black.id, "black-primary.webp"],
+      [white.id, "white-primary.webp"],
+    ]);
   });
 });
