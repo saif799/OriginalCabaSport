@@ -5,6 +5,7 @@ import {
   index,
   integer,
   pgTable,
+  text,
   timestamp,
   unique,
   uuid,
@@ -73,6 +74,11 @@ export const ordersTable = pgTable(
       .references(() => stautsGroupsTable.id)
       .default("404332b3-998f-498f-a325-3e4ecf6c3bbb"),
     saif_paid: boolean("saif_paid").notNull().default(false),
+    // When the customer was last sent the "your parcel is out for delivery"
+    // WhatsApp message. A plain timestamp, never cleared: it records that the
+    // message was *opened* in WhatsApp, not that WhatsApp delivered it — a
+    // wa.me link gives nothing back. Null means never messaged.
+    confirmationSentAt: timestamp("confirmation_sent_at", { withTimezone: true }),
     createdAt: date("created_at").notNull().defaultNow(),
     updatedAt: date("updated_at").notNull().defaultNow(),
   },
@@ -364,3 +370,24 @@ export const storefrontCollectionItems = pgTable(
     ),
   ],
 );
+
+/**
+ * Admin-editable settings, as a key/value store.
+ *
+ * Deliberately not one column per setting: these are strings the owner edits
+ * from the dashboard, and a new one should not cost a migration. Reads go
+ * through `lib/settings/appSettings.ts`, which owns the key names and the
+ * fallback when a row has never been written.
+ *
+ * Safe to hold in the database because `/admin` and every `/api/admin/*` route
+ * are behind the admin session (ADR-0005). Note that the `FB_PIXEL_ID`
+ * reasoning in CLAUDE.md — "/admin has no authentication" — predates that ADR;
+ * it is not an argument against this table.
+ */
+export const appSettings = pgTable("app_settings", {
+  key: varchar("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});

@@ -105,6 +105,7 @@ export function DataTable({
           });
         },
         onOrderDeleted: () => router.refresh(),
+        onOrderMessaged: () => router.refresh(),
         deliveryRecords,
       }),
     [sort, setParams, router, deliveryRecords]
@@ -210,7 +211,12 @@ export function DataTable({
       </div>
 
       <div className="overflow-hidden rounded-md border">
-        <Table>
+        {/* Table already wraps itself in an overflow-x-auto container, so the
+            phone problem is not a missing scroller: it is `w-full` with no
+            floor, which lets seven columns squeeze into 390px instead of
+            overflowing. The min-width gives them room to refuse, and the
+            scroller that is already there does the rest. */}
+        <Table className="min-w-[64rem]">
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>

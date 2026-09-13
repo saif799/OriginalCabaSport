@@ -3,10 +3,15 @@ import { stautsGroupsTable } from "@/lib/schema";
 
 /**
  * The internal status names in status_groups_table.name. Not an exhaustive
- * closed set — the table is admin-editable — but these four are relied on by
- * name elsewhere in the app (defaults, cancel/retour handling, analytics).
+ * closed set — the table is admin-editable — but these are relied on by name
+ * elsewhere in the app (defaults, cancel/retour handling, analytics).
  */
-export type OrderStatus = "prete a expedier" | "Livre" | "retour" | "Cancel";
+export type OrderStatus =
+  | "prete a expedier"
+  | "en livraison"
+  | "Livre"
+  | "retour"
+  | "Cancel";
 
 /**
  * Name form of READY_TO_SHIP_STATUS_ID — for UI code that badges by name.
@@ -26,6 +31,10 @@ export const READY_TO_SHIP_STATUS_ID = "404332b3-998f-498f-a325-3e4ecf6c3bbb"; /
 export const DELIVERED_STATUS_ID = "830826fd-80f5-4a29-829b-6421264c7695"; // "Livre"
 export const RETURNED_STATUS_ID = "e4983321-f0c7-452d-8b36-68d42dfb7be4"; // "retour"
 export const CANCELED_STATUS_ID = "e01a36c1-087c-46ab-aa4c-12b1a5186bf1"; // "Cancel"
+// "en livraison" — the parcel is with the livreur. The only status the
+// customer WhatsApp nudge is offered on, so the row action needs it
+// synchronously while rendering the table.
+export const EN_LIVRAISON_STATUS_ID = "6a066908-9417-4182-9367-cd0eac49dd62";
 
 export type StatusGroupRow = {
   id: string;

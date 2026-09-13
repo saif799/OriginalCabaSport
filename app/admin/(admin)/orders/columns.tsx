@@ -13,6 +13,7 @@ import type { DeliveryRecord } from "@/lib/orders/deliveryRecord";
 import type { OrderSort, OrderSortField, SortDirection } from "./params";
 import { OrderRowActions } from "./OrderRowActions";
 import { DeliveryRecordBadge } from "./DeliveryRecordBadge";
+import { WhatsAppSentBadge } from "./WhatsAppSentBadge";
 
 export type OrderType = InferSelectModel<typeof ordersTable> & {
   statusName: string | null;
@@ -31,6 +32,8 @@ type BuildColumnsOptions = {
   onSort: (field: OrderSortField, direction: SortDirection) => void;
   /** Called after a row is deleted so the table can pull fresh server data. */
   onOrderDeleted: () => void;
+  /** Called after a row is messaged, for the same refetch. */
+  onOrderMessaged: () => void;
   /**
    * Delivery Records by order id, resolved on the server. Only ready-to-ship
    * rows are ever present: the record answers "should I send this?", which a
@@ -47,6 +50,7 @@ export function buildOrderColumns({
   sort,
   onSort,
   onOrderDeleted,
+  onOrderMessaged,
   deliveryRecords,
 }: BuildColumnsOptions): ColumnDef<OrderType>[] {
   return [
@@ -64,6 +68,9 @@ export function buildOrderColumns({
               {row.original.telephone}
             </div>
             {record ? <DeliveryRecordBadge record={record} /> : null}
+            {row.original.confirmationSentAt ? (
+              <WhatsAppSentBadge sentAt={row.original.confirmationSentAt} />
+            ) : null}
           </>
         );
       },
@@ -149,7 +156,11 @@ export function buildOrderColumns({
     {
       id: "actions",
       cell: ({ row }) => (
-        <OrderRowActions order={row.original} onDeleted={onOrderDeleted} />
+        <OrderRowActions
+          order={row.original}
+          onDeleted={onOrderDeleted}
+          onMessaged={onOrderMessaged}
+        />
       ),
     },
   ];
