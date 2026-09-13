@@ -269,100 +269,33 @@ export default function ProductCard({
             <DropdownMenuContent align="end">
               <DropdownMenuLabel>Actions</DropdownMenuLabel>
               {isBorrowerView && lenderId ? (
-                <DropdownMenuItem onClick={() => setIsBringBackOpen(true)}>
-                  <Dialog
-                    open={isBringBackOpen}
-                    onOpenChange={setIsBringBackOpen}
-                  >
-                    <DialogTrigger
-                      onClick={(e) => e.stopPropagation()}
-                      className="flex items-center gap-1"
-                    >
-                      <Undo2 className="h-3 w-3" /> Bring Back
-                    </DialogTrigger>
-                    <InventoryTransferDialog
-                      open={isBringBackOpen}
-                      onOpenChange={setIsBringBackOpen}
-                      lines={bringBackLines}
-                      target={{
-                        mode: "return",
-                        borrowerId: lenderId,
-                        borrowerName: borrowerName ?? "this borrower",
-                      }}
-                      onSuccess={() => router.refresh()}
-                    />
-                  </Dialog>
+                <DropdownMenuItem
+                  className="flex items-center gap-1"
+                  onSelect={() => setIsBringBackOpen(true)}
+                >
+                  <Undo2 className="h-3 w-3" /> Bring Back
                 </DropdownMenuItem>
               ) : (
                 <>
-                  <DropdownMenuItem onClick={() => setIsStoreSaleOpen(true)}>
-                    <Dialog
-                      open={isStoreSaleOpen}
-                      onOpenChange={setIsStoreSaleOpen}
-                    >
-                      <DialogTrigger
-                        onClick={(e) => e.stopPropagation()}
-                        className="flex items-center gap-1"
-                      >
-                        <ShoppingCart className="h-3 w-3 " /> Store Sale
-                      </DialogTrigger>
-                      <StoreSaleDialog
-                        product={{
-                          modelId,
-                          modelName,
-                          color,
-                          sizes,
-                          shoeId,
-                        }}
-                        setIsStoreSaleOpen={setIsStoreSaleOpen}
-                      />
-                    </Dialog>{" "}
+                  <DropdownMenuItem
+                    className="flex items-center gap-1"
+                    onSelect={() => setIsStoreSaleOpen(true)}
+                  >
+                    <ShoppingCart className="h-3 w-3" /> Store Sale
                   </DropdownMenuItem>
 
-                  <DropdownMenuItem onClick={() => setIsLendInventoryOpen(true)}>
-                    <Dialog
-                      open={isLendInventoryOpen}
-                      onOpenChange={setIsLendInventoryOpen}
-                    >
-                      <DialogTrigger
-                        onClick={(e) => e.stopPropagation()}
-                        className="flex items-center gap-1"
-                      >
-                        <Handshake className="h-3 w-3" /> Lend
-                      </DialogTrigger>
-                      <InventoryTransferDialog
-                        open={isLendInventoryOpen}
-                        onOpenChange={setIsLendInventoryOpen}
-                        lines={lendLines}
-                        target={{ mode: "lend" }}
-                        emptyText="No available sizes in stock."
-                        onSuccess={() => router.refresh()}
-                      />
-                    </Dialog>
+                  <DropdownMenuItem
+                    className="flex items-center gap-1"
+                    onSelect={() => setIsLendInventoryOpen(true)}
+                  >
+                    <Handshake className="h-3 w-3" /> Lend
                   </DropdownMenuItem>
 
-                  <DropdownMenuItem>
-                    <Dialog
-                      open={isEditInventoryOpen}
-                      onOpenChange={setIsEditInventoryOpen}
-                    >
-                      <DialogTrigger
-                        onClick={(e) => e.stopPropagation()}
-                        className="flex items-center gap-1"
-                      >
-                        <Pencil className="h-3 w-3" /> Edit
-                      </DialogTrigger>
-                      <EditInventoryDialog
-                        product={{
-                          modelId,
-                          modelName,
-                          color,
-                          sizes,
-                          shoeId,
-                        }}
-                        setIsEditInventoryOpen={setIsEditInventoryOpen}
-                      />
-                    </Dialog>
+                  <DropdownMenuItem
+                    className="flex items-center gap-1"
+                    onSelect={() => setIsEditInventoryOpen(true)}
+                  >
+                    <Pencil className="h-3 w-3" /> Edit
                   </DropdownMenuItem>
 
                   <DropdownMenuSeparator />
@@ -379,6 +312,62 @@ export default function ProductCard({
               )}
             </DropdownMenuContent>
           </DropdownMenu>
+
+          {/*
+            The dialogs are siblings of the menu, never children of a
+            DropdownMenuItem. Selecting an item closes the menu, which unmounts
+            everything inside DropdownMenuContent — a Dialog nested there would
+            vanish the instant it was asked to open, while its `open` state
+            stayed true, leaving no way to open it again.
+          */}
+          {isBorrowerView && lenderId ? (
+            <Dialog open={isBringBackOpen} onOpenChange={setIsBringBackOpen}>
+              <InventoryTransferDialog
+                open={isBringBackOpen}
+                onOpenChange={setIsBringBackOpen}
+                lines={bringBackLines}
+                target={{
+                  mode: "return",
+                  borrowerId: lenderId,
+                  borrowerName: borrowerName ?? "this borrower",
+                }}
+                onSuccess={() => router.refresh()}
+              />
+            </Dialog>
+          ) : (
+            <>
+              <Dialog open={isStoreSaleOpen} onOpenChange={setIsStoreSaleOpen}>
+                <StoreSaleDialog
+                  product={{ modelId, modelName, color, sizes, shoeId }}
+                  setIsStoreSaleOpen={setIsStoreSaleOpen}
+                />
+              </Dialog>
+
+              <Dialog
+                open={isLendInventoryOpen}
+                onOpenChange={setIsLendInventoryOpen}
+              >
+                <InventoryTransferDialog
+                  open={isLendInventoryOpen}
+                  onOpenChange={setIsLendInventoryOpen}
+                  lines={lendLines}
+                  target={{ mode: "lend" }}
+                  emptyText="No available sizes in stock."
+                  onSuccess={() => router.refresh()}
+                />
+              </Dialog>
+
+              <Dialog
+                open={isEditInventoryOpen}
+                onOpenChange={setIsEditInventoryOpen}
+              >
+                <EditInventoryDialog
+                  product={{ modelId, modelName, color, sizes, shoeId }}
+                  setIsEditInventoryOpen={setIsEditInventoryOpen}
+                />
+              </Dialog>
+            </>
+          )}
         </div>
       </div>
     </article>
