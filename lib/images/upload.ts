@@ -16,12 +16,17 @@ import { ACCEPTED_UPLOAD_TYPES, MAX_UPLOAD_BYTES } from "@/lib/images/source";
  *
  *   1. Downscale in the browser (~250 KB out of a 3.8 MB camera photo).
  *   2. POST it to /api/r2/upload, where sharp writes the three Renditions.
- *   3. On failure, presign and PUT the *original* direct to R2 — a legacy
- *      single object with no Renditions, which the image loader passes through.
+ *   3. Only when step 2 says the bytes are too big for it, presign and PUT the
+ *      *original* direct to R2 — a legacy single object with no Renditions,
+ *      which the image loader passes through.
  *
  * Step 3 is also taken directly, skipping step 2, when the browser could not
  * downscale and the original is over the server's limit. Posting it would only
- * earn a 413. That case is the entire reason the presigned path still exists.
+ * earn a 413. Size is the entire reason the presigned path still exists, which
+ * is why it is now the only thing that reaches it: it used to catch *every*
+ * step-2 failure, and since a direct PUT needs a CORS rule on the bucket that
+ * a same-origin POST does not, every server-side fault came back to the user
+ * as a CORS error instead of its own message.
  */
 
 /** One finished upload: the R2 object key and the public URL built from it. */
@@ -35,6 +40,20 @@ export interface UploadImageOptions {
   folder: string;
   /** Bytes-sent progress, 0-100. Capped below 100 until the server responds. */
   onProgress?: (percent: number) => void;
+}
+
+/**
+ * A non-2xx from `/api/r2/upload`, carrying the status so the caller can tell a
+ * verdict about *this file* (413 too big) from the route being broken (500).
+ */
+export class ServerUploadError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ServerUploadError";
+  }
 }
 
 /** Thrown for a file we will not attempt at all. Safe to show to the user. */
@@ -66,8 +85,19 @@ export async function uploadImageFile(
   try {
     return await uploadViaServer(prepared, folder, onProgress);
   } catch (serverError) {
-    console.warn("Server upload failed, falling back to presigned URL:", serverError);
-    return uploadViaPresignedUrl(file, folder, onProgress);
+    // Fall back only where the fallback is actually a different answer: the
+    // route judged these bytes too big for it, so sending the original straight
+    // to R2 is the one path left. Anything else — a 500, a 400 about the file
+    // type — is the server's verdict, and retrying it as a direct PUT does not
+    // make it truer. It only replaces a message that names the cause with
+    // "Network/CORS error during direct upload", which is what the fallback
+    // reports whenever the bucket has no CORS rule for this origin. That
+    // swap cost a real debugging session; keep the original error.
+    if (!(serverError instanceof ServerUploadError) || serverError.status === 413) {
+      console.warn("Server upload failed, falling back to presigned URL:", serverError);
+      return uploadViaPresignedUrl(file, folder, onProgress);
+    }
+    throw serverError;
   }
 }
 
@@ -107,7 +137,7 @@ function uploadViaServer(
         onProgress?.(100);
         resolve({ key: data.key, url: data.publicUrl });
       } else {
-        reject(new Error(data.error || `Upload failed (${xhr.status})`));
+        reject(new ServerUploadError(xhr.status, data.error || `Upload failed (${xhr.status})`));
       }
     };
 

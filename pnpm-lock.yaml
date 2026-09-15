@@ -19,7 +19,7 @@ importers:
         version: 3.1112.0
       '@cloudflare/workers-types':
         specifier: latest
-        version: 5.20260911.1
+        version: 5.20260914.1
       '@electric-sql/pglite':
         specifier: latest
         version: 0.5.8
@@ -121,13 +121,13 @@ importers:
         version: 17.2.3
       drizzle-orm:
         specifier: ^0.44.7
-        version: 0.44.7(6b464ab1d127e1267fceb2f8a55e652c)
+        version: 0.44.7(3366ca40b878079afdae7dea588db8fa)
       expo-sqlite:
         specifier: latest
         version: 57.0.3(expo@54.0.20(@babel/core@7.28.5)(bufferutil@4.0.9)(react-native@0.82.1(@babel/core@7.28.5)(@types/react@19.2.2)(bufferutil@4.0.9)(react@19.2.0))(react@19.2.0))(react-native@0.82.1(@babel/core@7.28.5)(@types/react@19.2.2)(bufferutil@4.0.9)(react@19.2.0))(react@19.2.0)
       gel:
         specifier: latest
-        version: 2.2.0
+        version: 2.2.1
       i18next:
         specifier: ^26.4.0
         version: 26.4.0(typescript@5.9.3)
@@ -155,6 +155,9 @@ importers:
       next-themes:
         specifier: ^0.4.6
         version: 0.4.6(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      optional:
+        specifier: ^0.1.4
+        version: 0.1.4
       pdf-lib:
         specifier: ^1.17.1
         version: 1.17.1
@@ -966,8 +969,8 @@ packages:
     resolution: {integrity: sha512-ctxtJ/eA+t+6q2++vj5j7FYX3nRu311q1wfYH3xjlLOsczhlhxAg2FWNUXhpGvAw3BWo1xBcvOV6/YLc2r5FJw==}
     hasBin: true
 
-  '@cloudflare/workers-types@5.20260911.1':
-    resolution: {integrity: sha512-yiAvknjulcU85B3yB4aKOn9+l+garWP+AbHgsdCFckeRYDdhZ1rPULi64BDf52R3VTaKqxi47kF+o9ZbjsCt5g==}
+  '@cloudflare/workers-types@5.20260914.1':
+    resolution: {integrity: sha512-9xGgkvmG1lw0QdKJmSR5YNXaA221DfefpDCfPLz5PlzdYU0BXzxONQoWakLXTsFIz8xtsNfeUg+mbspIA5P4Xg==}
 
   '@csstools/color-helpers@6.1.1':
     resolution: {integrity: sha512-gLNsunvwf3mCi5u5o46/Z/JcJMnhbHSaZ69rkgPzNM3J4s8hWwpPUQB6/tt0EDFyCiWzxANlx+2LJwpYj4zS1w==}
@@ -4613,8 +4616,8 @@ packages:
   function-bind@1.1.2:
     resolution: {integrity: sha512-7XHNxH7qX9xG5mIwxkhumTox/MIRNcOgDrxWsMt2pAr23WHp6MrRlN7FBSFpCpr+oVO0F744iUgR82nJMfG2SA==}
 
-  gel@2.2.0:
-    resolution: {integrity: sha512-q0ma7z2swmoamHQusey8ayo8+ilVdzDt4WTxSPzq/yRqvucWRfymRVMvNgmSC0XK7eNjjEZEcplxpgaNojKdmQ==}
+  gel@2.2.1:
+    resolution: {integrity: sha512-rdT62pmRnfnOto902T6axKaLgnrXJBJBEt7AQljICIxXvBDHdSc7LALYeFoGZy/LEgUHWsvOU8C72HbFbry/oA==}
     engines: {node: '>= 18.0.0'}
     hasBin: true
 
@@ -5163,10 +5166,6 @@ packages:
   lru-cache@10.4.3:
     resolution: {integrity: sha512-JNAzZcXrCt42VGLuYz0zfAzDfAvJWW6AfYlDBQyDV5DClI2m5sAmK+OIO7s59XfsRsWHp02jAJrRadPRGTt6SQ==}
 
-  lru-cache@11.2.4:
-    resolution: {integrity: sha512-B5Y16Jr9LB9dHVkh6ZevG+vAbOsNOYCX+sXvFWFu7B3Iz5mijW3zdbMyhsh8ANd2mSWBYdJgnqi+mL7/LrOPYg==}
-    engines: {node: 20 || >=22}
-
   lru-cache@11.5.2:
     resolution: {integrity: sha512-4pfM1Ff0x50o0tQwb5ucw/RzNyD0/YJME6IVcStalZuMWxdt3sR3huStTtxz4PUmvZfRguvDejasvQ2kifR11g==}
     engines: {node: 20 || >=22}
@@ -5566,6 +5565,9 @@ packages:
   open@8.4.2:
     resolution: {integrity: sha512-7x81NCL719oNbsq/3mh+hVrAWmFuEYUqrq/Iw3kUzH8ReypT9QQ0BLoJS7/G9k6N81XjW4qHWtjWwe/9eLy1EQ==}
     engines: {node: '>=12'}
+
+  optional@0.1.4:
+    resolution: {integrity: sha512-gtvrrCfkE08wKcgXaVwQVgwEQ8vel2dc5DDBn9RLQZ3YtmtkBss6A2HY6BnJH4N/4Ku97Ri/SF8sNWE2225WJw==}
 
   ora@3.4.0:
     resolution: {integrity: sha512-eNwHudNbO1folBP3JsZ19v9azXWtQZjICdr3Q0TDPIaeBQ3mXLrh54wM+er0+hSp+dWKf+Z8KM58CYzEyIYxYg==}
@@ -7887,7 +7889,7 @@ snapshots:
     dependencies:
       css-tree: 3.2.1
 
-  '@cloudflare/workers-types@5.20260911.1': {}
+  '@cloudflare/workers-types@5.20260914.1': {}
 
   '@csstools/color-helpers@6.1.1': {}
 
@@ -11200,10 +11202,10 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  drizzle-orm@0.44.7(6b464ab1d127e1267fceb2f8a55e652c):
+  drizzle-orm@0.44.7(3366ca40b878079afdae7dea588db8fa):
     optionalDependencies:
       '@aws-sdk/client-rds-data': 3.1131.0
-      '@cloudflare/workers-types': 5.20260911.1
+      '@cloudflare/workers-types': 5.20260914.1
       '@electric-sql/pglite': 0.5.8
       '@libsql/client': 0.18.0(bufferutil@4.0.9)
       '@libsql/client-wasm': 0.18.0
@@ -11221,7 +11223,7 @@ snapshots:
       better-sqlite3: 9.6.0
       bun-types: 1.4.2
       expo-sqlite: 57.0.3(expo@54.0.20(@babel/core@7.28.5)(bufferutil@4.0.9)(react-native@0.82.1(@babel/core@7.28.5)(@types/react@19.2.2)(bufferutil@4.0.9)(react@19.2.0))(react@19.2.0))(react-native@0.82.1(@babel/core@7.28.5)(@types/react@19.2.2)(bufferutil@4.0.9)(react@19.2.0))(react@19.2.0)
-      gel: 2.2.0
+      gel: 2.2.1
       knex: 3.3.0(better-sqlite3@9.6.0)(mysql2@3.24.4(@types/node@22.18.13))(pg@8.23.0)(sqlite3@6.0.1)
       kysely: 0.29.5
       mysql2: 3.24.4(@types/node@22.18.13)
@@ -11523,7 +11525,7 @@ snapshots:
 
   function-bind@1.1.2: {}
 
-  gel@2.2.0:
+  gel@2.2.1:
     dependencies:
       '@petamoriken/float16': 3.9.3
       debug: 4.4.3
@@ -12042,8 +12044,6 @@ snapshots:
       js-tokens: 4.0.0
 
   lru-cache@10.4.3: {}
-
-  lru-cache@11.2.4: {}
 
   lru-cache@11.5.2: {}
 
@@ -12650,6 +12650,8 @@ snapshots:
       is-docker: 2.2.1
       is-wsl: 2.2.0
 
+  optional@0.1.4: {}
+
   ora@3.4.0:
     dependencies:
       chalk: 2.4.2
@@ -12706,7 +12708,7 @@ snapshots:
 
   path-scurry@2.0.1:
     dependencies:
-      lru-cache: 11.2.4
+      lru-cache: 11.5.2
       minipass: 7.1.2
 
   pathe@2.0.3: {}
