@@ -3,7 +3,7 @@ import { requireAdmin } from "@/lib/auth/guard";
 import { db } from "@/lib/db";
 import { shoeImages } from "@/lib/schema";
 import { buildR2PublicUrl } from "@/lib/r2";
-import { deleteRenditions } from "@/lib/images/transform";
+import { deleteImage } from "@/lib/images/transform";
 import { eq } from "drizzle-orm";
 
 /**
@@ -12,8 +12,8 @@ import { eq } from "drizzle-orm";
  * fallback path, a presigned PUT).
  * Body: { shoeId, cloudflareImageId, altText?, sortOrder?, isPrimary? }
  *
- * `cloudflareImageId` is the DEFAULT_RENDITION_WIDTH key — a real object, and
- * the one the other two Renditions are derived from by convention (ADR-0007).
+ * `cloudflareImageId` is the R2 object key. Resizing happens on read, in
+ * Vercel's image optimizer (ADR-0008), so the key names the one object there is.
  *
  * The stored `url` is always derived server-side from that key. A `url` in the
  * body is ignored — the key is the single source of truth, so changing
@@ -94,8 +94,8 @@ export async function DELETE(request: Request) {
     }
 
     // Physical R2 deletion first — if this fails we keep the DB row.
-    // Three objects since ADR-0007 (the Renditions), one for an older image.
-    await deleteRenditions(image.cloudflareImageId);
+    // One object, or three for a row written under ADR-0007.
+    await deleteImage(image.cloudflareImageId);
 
     // Remove the DB record
     await db.delete(shoeImages).where(eq(shoeImages.id, imageId));

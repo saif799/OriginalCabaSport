@@ -1,52 +1,33 @@
 import { v4 as uuidv4 } from "uuid";
 
 /**
- * The rendition key convention (ADR-0007).
+ * R2 key construction, and what is left of the ADR-0007 rendition convention.
  *
- * An uploaded photograph is stored as three webp Renditions and nothing else —
- * the file that was uploaded is discarded. They are addressed *by convention*,
- * not recorded: one key is stored per image (`shoe_images.cloudflareImageId`,
- * `storefront_collections.imageKey`) and the other two are that key with the
- * width swapped. That is what lets a next/image custom loader — which receives
- * only a `src` string and cannot read the database — find them.
+ * ADR-0008 stopped writing Renditions: an upload is now one object, resized on
+ * read by Vercel's image optimizer. New keys keep their extension and are built
+ * by `buildSingleObjectKey`.
  *
- * The stored key ends `_800.webp` and is therefore a real, fetchable object.
- * This matters: `url` is read raw by the openGraph tags and JSON-LD schema in
- * app/(storefront)/[lng]/product/[shoeId]/page.tsx and by the admin card's plain
- * <img> in components/productCard.tsx. None of those go through the loader, so
- * a key that is not a file would 404 in three places nobody watches.
+ * The rendition half cannot simply be deleted. 116 rows were written while
+ * ADR-0007 was in force: each stores a key ending `_800.webp` and has an `_400`
+ * and `_1600` sibling in the bucket that no database column records. Serving
+ * them is fine — a stored `_800.webp` key is a real object and just a URL now —
+ * but *deleting* one has to find the other two, which is what
+ * `allRenditionKeys` is for and the only reason the convention survives here.
  *
- * Everything uploaded before ADR-0007 has a single file with its original
- * extension and no renditions. Every function here must pass those through
- * untouched — that is the ~327-row half of the gallery, and the failure mode is
- * a silent broken image, so it is what tests/images/renditions.test.ts spends
- * most of its assertions on.
- *
- * Pure string work, no dependencies beyond uuid: this module is imported from
- * the browser (the uploader, the loader) and the server (sharp, the backfill).
+ * Pure string work, no dependencies beyond uuid: imported from the browser (the
+ * uploader) and the server (the write path, lib/r2.ts).
  */
 
-/**
- * Frozen — see ADR-0007. Renditions are derived from the upload and the upload
- * is not kept, so changing this set re-derives from the 1600 and loses a
- * generation. `next.config.mjs` mirrors it as `deviceSizes`.
- */
-export const RENDITION_WIDTHS = [400, 800, 1600] as const;
+/** The widths ADR-0007 wrote. Historical: nothing writes these any more. */
+const RENDITION_WIDTHS = [400, 800, 1600] as const;
 
-export type RenditionWidth = (typeof RENDITION_WIDTHS)[number];
-
-/**
- * The width stored in `url` / `imageUrl`, and so the one served to anything
- * that bypasses the loader: social scrapers, Google's product schema, the admin
- * grid. 800 clears Facebook's 600px large-preview threshold and is ~60KB.
- */
-export const DEFAULT_RENDITION_WIDTH: RenditionWidth = 800;
+type RenditionWidth = (typeof RENDITION_WIDTHS)[number];
 
 /**
  * Anchored at the end so it matches a bare key and a full public URL alike, and
- * enumerating the three widths rather than `\d+` on purpose: 43 pre-existing
- * rows end in `_<digits>.webp` from hand-optimising, and only the widths we
- * actually write may be rewritten.
+ * enumerating the three widths rather than `\d+` on purpose: 43 rows predating
+ * ADR-0007 end in `_<digits>.webp` from hand-optimising, and only the widths we
+ * actually wrote may be expanded into siblings.
  */
 const RENDITION_SUFFIX = /_(400|800|1600)\.webp$/;
 
@@ -54,8 +35,8 @@ const RENDITION_SUFFIX = /_(400|800|1600)\.webp$/;
 const EXTENSION = /\.[^./]+$/;
 
 /**
- * A trailing width that would make a user's filename look like one of our
- * renditions. Stripped at key construction — see `keyLeaf`.
+ * A trailing width that would make a user's filename look like one of the
+ * ADR-0007 renditions. Stripped at key construction — see `keyLeaf`.
  */
 const MIMICS_RENDITION = /_(400|800|1600)$/;
 
@@ -65,29 +46,28 @@ function splitQuery(ref: string): [string, string] {
   return cut === -1 ? [ref, ""] : [ref.slice(0, cut), ref.slice(cut)];
 }
 
-/** True when `ref` (a key or a public URL) names one of our renditions. */
-export function isRenditionRef(ref: string): boolean {
-  return RENDITION_SUFFIX.test(splitQuery(ref)[0]);
-}
-
 /**
- * The shared prefix the three renditions hang off, or null if `ref` is a legacy
- * single file. Strips only the trailing suffix, so an upload of `shoe_800.webp`
- * (base `…-shoe_800`, rendition `…-shoe_800_400.webp`) resolves correctly.
+ * The shared prefix the three ADR-0007 renditions hang off, or null if `ref` is
+ * a single-object key. Strips only the trailing suffix, so a key of
+ * `…-shoe_800_800.webp` resolves to the base `…-shoe_800`.
  */
-export function renditionBase(ref: string): string | null {
+function renditionBase(ref: string): string | null {
   const [path] = splitQuery(ref);
   return RENDITION_SUFFIX.test(path) ? path.replace(RENDITION_SUFFIX, "") : null;
 }
 
-/** The key (or URL) of one rendition of `base`. */
-export function renditionRef(base: string, width: RenditionWidth): string {
+/** The key of one ADR-0007 rendition of `base`. */
+function renditionRef(base: string, width: RenditionWidth): string {
   return `${base}_${width}.webp`;
 }
 
 /**
- * Every R2 object backing one image — three keys for a rendition set, or the
- * single key itself for a legacy row. This is what a delete has to remove.
+ * Every R2 object backing one image — the single key itself, or the three keys
+ * of a row written under ADR-0007. This is what a delete has to remove.
+ *
+ * Total by construction: a key it does not recognise comes back as itself, so
+ * it is correct for the pre-ADR-0007 rows, the ADR-0007 rows, and everything
+ * written since.
  */
 export function allRenditionKeys(key: string): string[] {
   const base = renditionBase(key);
@@ -95,40 +75,19 @@ export function allRenditionKeys(key: string): string[] {
   return RENDITION_WIDTHS.map((w) => renditionRef(base, w));
 }
 
-/** The smallest rendition that covers `width`, clamped to the largest we store. */
-export function nearestRenditionWidth(width: number): RenditionWidth {
-  return RENDITION_WIDTHS.find((w) => w >= width) ?? RENDITION_WIDTHS[RENDITION_WIDTHS.length - 1];
-}
-
-/**
- * The loader rule. Rewrites a rendition ref to the width that fits, and returns
- * anything else — legacy uploads, `/placeholder.svg`, an empty src — exactly as
- * given. Total by construction: there is no input it can turn into a 404.
- */
-export function withRenditionWidth(ref: string, width: number): string {
-  const [path, tail] = splitQuery(ref);
-  const base = renditionBase(path);
-  if (!base) return ref;
-  return `${renditionRef(base, nearestRenditionWidth(width))}${tail}`;
-}
-
 /**
  * Sanitises a filename into the `<uuid>-<name>` leaf of an R2 key.
  *
- * The single definition of what a key leaf looks like — `getPresignedUploadUrl`
- * builds its keys through this too, so the fallback path and the rendition path
- * cannot drift apart.
- *
- * `MIMICS_RENDITION` is why it is shared. A user file genuinely named
+ * `MIMICS_RENDITION` is why this is one shared definition. A user file named
  * `photo_800.webp` would otherwise produce the key `<uuid>-photo_800.webp`,
- * which `isRenditionRef` matches — and the loader would then serve
- * `<uuid>-photo_400.webp`, an object nobody ever wrote. 43 existing rows already
- * end in `_<digits>.webp` from hand-optimising, so this is not hypothetical; it
- * is only luck that none of them uses 400, 800 or 1600.
+ * which `allRenditionKeys` reads as an ADR-0007 rendition set — so deleting it
+ * would issue deletes for two siblings that were never written. Harmless today
+ * because the uuid scopes it, but it is a lie in the key space and costs
+ * nothing to avoid.
  */
-function keyLeaf(filename: string, { keepExtension }: { keepExtension: boolean }): string {
+function keyLeaf(filename: string): string {
   const stem = filename.replace(EXTENSION, "");
-  const extension = keepExtension ? filename.slice(stem.length) : "";
+  const extension = filename.slice(stem.length);
   const safeStem = stem.replace(MIMICS_RENDITION, "").replace(/[^a-zA-Z0-9.-]/g, "_");
   return `${uuidv4()}-${safeStem}${extension}`;
 }
@@ -140,17 +99,9 @@ function joinKey(folder: string, leaf: string): string {
 }
 
 /**
- * The base key for a new upload: `<folder>/<uuid>-<name>`, with the source
- * extension dropped because the base is not a file — only its renditions are.
- */
-export function buildRenditionBaseKey(folder: string, filename: string): string {
-  return joinKey(folder, keyLeaf(filename, { keepExtension: false }));
-}
-
-/**
- * The key for an object stored as-is, extension and all: the presigned
- * fallback, which uploads an untransformed original.
+ * The key for a stored object, extension and all: every upload since ADR-0008,
+ * and the presigned fallback before it.
  */
 export function buildSingleObjectKey(folder: string, filename: string): string {
-  return joinKey(folder, keyLeaf(filename, { keepExtension: true }));
+  return joinKey(folder, keyLeaf(filename));
 }

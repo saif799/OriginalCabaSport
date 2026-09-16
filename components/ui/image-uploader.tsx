@@ -106,7 +106,7 @@ export function ImageUploader({
 
     // No size check here. `uploadImageFile` downscales first and picks the
     // route that can carry the result, so the only thing worth rejecting up
-    // front is a file type sharp will not accept — and it reports that itself.
+    // front is a file type the route will not accept — and it reports that itself.
     const accepted = selectedFiles.filter((file) => {
       if (ACCEPTED_UPLOAD_TYPES.has(file.type)) return true;
       toast.error(new UnsupportedImageError(file.name).message);

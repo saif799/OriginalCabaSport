@@ -15,10 +15,9 @@ import { ACCEPTED_UPLOAD_TYPES, MAX_UPLOAD_BYTES } from "@/lib/images/source";
  * The sequence:
  *
  *   1. Downscale in the browser (~250 KB out of a 3.8 MB camera photo).
- *   2. POST it to /api/r2/upload, where sharp writes the three Renditions.
+ *   2. POST it to /api/r2/upload, which stores it as one R2 object.
  *   3. Only when step 2 says the bytes are too big for it, presign and PUT the
- *      *original* direct to R2 — a legacy single object with no Renditions,
- *      which the image loader passes through.
+ *      *original* direct to R2, skipping the function body limit.
  *
  * Step 3 is also taken directly, skipping step 2, when the browser could not
  * downscale and the original is over the server's limit. Posting it would only
@@ -121,7 +120,7 @@ function uploadViaServer(
 
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) {
-        // Capped at 99: the bytes are up, but sharp has yet to run.
+        // Capped at 99: the bytes are up, but the route has yet to answer.
         onProgress?.(Math.min(99, Math.round((event.loaded / event.total) * 100)));
       }
     };

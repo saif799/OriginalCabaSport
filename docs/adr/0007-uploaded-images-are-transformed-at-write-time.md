@@ -1,7 +1,9 @@
 # ADR 0007: Uploaded Images Are Transformed at Write Time
 
 ## Status
-Accepted. Decision 8 and its two consequences were added after acceptance; nothing above them changed.
+**Superseded by [ADR-0008](0008-images-are-resized-on-read-by-vercel.md) (2026-09-16)** — sharp could not be deployed to Vercel from pnpm, and images are now resized on read instead of at write time. The context below still holds and is why the browser downscale survives; the write-time pipeline, the Renditions and the Quality Budget do not.
+
+Previously: accepted. Decision 8 and its two consequences were added after acceptance; nothing above them changed.
 
 ## Context
 

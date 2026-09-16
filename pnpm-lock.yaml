@@ -191,9 +191,6 @@ importers:
       server-only:
         specifier: ^0.0.1
         version: 0.0.1
-      sharp:
-        specifier: ^0.35.4
-        version: 0.35.4(@types/node@22.18.13)
       sonner:
         specifier: ^2.0.7
         version: 2.0.7(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
@@ -249,6 +246,9 @@ importers:
       '@vitest/coverage-v8':
         specifier: ^4.1.11
         version: 4.1.11(vitest@4.1.11)
+      baseline-browser-mapping:
+        specifier: ^2.11.23
+        version: 2.11.23
       drizzle-kit:
         specifier: ^0.31.6
         version: 0.31.6
@@ -258,6 +258,9 @@ importers:
       postcss:
         specifier: ^8.5.6
         version: 8.5.6
+      sharp:
+        specifier: ^0.35.4
+        version: 0.35.4(@types/node@22.18.13)
       tailwindcss:
         specifier: 4.1.16
         version: 4.1.16
@@ -3873,6 +3876,11 @@ packages:
 
   base64-js@1.5.1:
     resolution: {integrity: sha512-AKpaYlHn8t4SVbOHCy+b5+KKgvR4vrsD8vbvrbiQJps7fKDTkjkDry6ji0rUJjC0kzbNePLwzxq8iypo41qeWA==}
+
+  baseline-browser-mapping@2.11.23:
+    resolution: {integrity: sha512-le521dGVfxM7yRX0EikCoSz+rOK+hHzdDt/E7mG1jOJB/6WAAUuwVroLwaB7ApaUsz5Q0kFlDXLSA9MheUIfRQ==}
+    engines: {node: '>=6.0.0'}
+    hasBin: true
 
   baseline-browser-mapping@2.9.4:
     resolution: {integrity: sha512-ZCQ9GEWl73BVm8bu5Fts8nt7MHdbt5vY9bP6WGnUh+r3l8M7CgfyTlwsgCbMC66BNxPr6Xoce3j66Ms5YUQTNA==}
@@ -10843,6 +10851,8 @@ snapshots:
   balanced-match@1.0.2: {}
 
   base64-js@1.5.1: {}
+
+  baseline-browser-mapping@2.11.23: {}
 
   baseline-browser-mapping@2.9.4: {}
 

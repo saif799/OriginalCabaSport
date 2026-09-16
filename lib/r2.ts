@@ -115,9 +115,8 @@ export async function getPresignedUploadUrl({
 
   const client = getR2Client();
 
-  // Shared with the rendition path so the two cannot drift, and so a file named
-  // "photo_800.webp" cannot be stored under a key the image loader would mistake
-  // for a rendition and rewrite into objects that were never written.
+  // Shared with POST /api/r2/upload so the two paths cannot drift apart on what
+  // a key looks like.
   const key = buildSingleObjectKey(folder, filename);
 
   const command = new PutObjectCommand({

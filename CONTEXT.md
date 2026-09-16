@@ -11,17 +11,19 @@ A public-facing item available for browsing and purchasing. Corresponds to a spe
 A brand or style classification (e.g., "Air Force 1", "Yeezy 350"). Groups one or more color variants (`shoes`). On the storefront, switching colors navigates between products sharing the same Shoe Model.
 
 ### Shoe Image Gallery (`shoe_images`)
-The ordered set of photographs belonging to a specific color variant (`shoeId`). One row is one *photograph*, not one file: each row is served as a set of Renditions.
+The ordered set of photographs belonging to a specific color variant (`shoeId`). One row is one photograph and, since ADR-0008, one R2 object; the sizes a customer is served are derived from it on read.
 - **Primary Image (`isPrimary`)**: The designated hero thumbnail image used in product catalog cards and preview cards across the storefront.
 - **Sort Order (`sortOrder`)**: Integer sequence determining the display order of thumbnails inside the product page carousel.
 
-### Rendition
-One stored size of a photograph. Every uploaded photograph — a gallery image or a Collection image — is kept as a fixed set of Renditions, and the storefront serves whichever one fits the space it is drawn in. Renditions are the only form in which an image exists here: the file that was uploaded is **not retained** once they are produced, so there is no master to re-derive from and the set of sizes is not something to change casually (see ADR-0007).
+### Rendition *(historical)*
+One stored size of a photograph. Between ADR-0007 and ADR-0008, every uploaded photograph was kept as three stored Renditions (400/800/1600) and the uploaded file was discarded; the storefront served whichever fitted the space it was drawn in.
 
-Images uploaded before ADR-0007 have no Renditions and are served as the single file they have always been. Both shapes coexist deliberately; neither is an error state.
+**Nothing writes Renditions any more.** ADR-0008 stores one object and resizes on read, because the write-time pipeline needed sharp in the deployed runtime and sharp could not be deployed. The term survives for two reasons: 116 rows still have a Rendition set in the bucket, and the `_400`/`_1600` siblings of those rows are recorded nowhere, so a **delete** must still expand the stored key to find them (`allRenditionKeys`). Use the term only about those rows. A new upload has an object, not Renditions.
 
-### Quality Budget
-What a generation of quality is worth in bytes, when a Rendition is produced. Every Rendition is encoded, and that encode is the baseline; where the upload itself is better to serve — its own bytes at a width that would not have resized them, or a lossless encode of a small `png` — that better body is stored instead, unless it costs more than the Quality Budget (`QUALITY_BUDGET_BYTES`, 50 KB) over the encode. So an image that is already small enough comes out of the pipeline untouched, and one whose re-encode would visibly lighten a page is always re-encoded. Distinct from **Already Small** (`ALREADY_SMALL_BYTES`, 300 KB), which is a batch line — what the backfill bothers to select, and what the browser bothers to downscale before upload — not a judgement about a stored file.
+### Already Small (`ALREADY_SMALL_BYTES`, 300 KB)
+The line below which the browser does not re-encode before uploading: a downscale there would spend a generation of quality to save upstream bytes nobody would notice. An *upstream* line, about what leaves the phone — not a judgement about what a customer is finally served, which is Vercel's optimizer's call at read time (ADR-0008).
+
+The **Quality Budget** (`QUALITY_BUDGET_BYTES`, 50 KB) was its write-time counterpart under ADR-0007, deciding which of several server encodes to store. There is no server encode now, and the term is retired.
 
 ### Variant Pricing
 The monetary price of a shoe item in Algerian Dinars (DZD / DA), resolved through three levels (see ADR-0002, superseding ADR-0001 §3):

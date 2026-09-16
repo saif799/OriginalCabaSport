@@ -1,25 +1,26 @@
 import { requireAdmin } from "@/lib/auth/guard";
 import { NextResponse } from "next/server";
 import { ACCEPTED_UPLOAD_TYPES, MAX_UPLOAD_BYTES } from "@/lib/images/source";
-import { writeRenditions } from "@/lib/images/transform";
+import { writeImage } from "@/lib/images/transform";
 
 /**
- * POST /api/r2/upload — the normal upload path since ADR-0007.
+ * POST /api/r2/upload — the normal upload path.
  *
  * It used to be the CORS fallback behind a presigned direct-to-R2 PUT, because
  * a 3.8 MB camera photo does not fit through a Vercel Node function (4.5 MB
- * body limit). The browser now downscales to ~250 KB before posting
+ * body limit). The browser downscales to ~250 KB before posting
  * (lib/images/downscale.ts), which both removes that constraint and makes the
- * upload itself ~10x faster on mobile upstream — so the bytes come here, sharp
- * writes three Renditions, and the file that was posted is never stored.
+ * upload itself ~10x faster on mobile upstream.
  *
- * `/api/r2/presigned-url` survives as the fallback for a browser that cannot
- * downscale; what it stores is a legacy single file with no Renditions, which
- * the image loader serves untouched.
+ * Since ADR-0008 this route does no image processing: it stores the posted
+ * bytes as one object and resizing happens on read, in Vercel's optimizer. So
+ * it differs from `/api/r2/presigned-url` — still the fallback for a browser
+ * that cannot downscale — only in going through the function rather than
+ * straight to the bucket.
  *
- * Returns the DEFAULT_RENDITION_WIDTH key. That is what callers persist, and it
- * is a real object — `POST /api/admin/images` and the collections PATCH both
- * derive the stored url from it.
+ * Returns the stored key. That is what callers persist, and `POST
+ * /api/admin/images` and the collections PATCH both derive the stored url from
+ * it rather than trusting a client-supplied one.
  */
 export async function POST(request: Request) {
   const denied = await requireAdmin();
@@ -56,13 +57,12 @@ export async function POST(request: Request) {
     }
 
     const source = Buffer.from(await file.arrayBuffer());
-    const { key, url } = await writeRenditions(source, {
+    const { key, url } = await writeImage(source, {
       folder,
       filename: file.name,
+      contentType: file.type,
     });
 
-    // Only the DEFAULT_RENDITION_WIDTH key. The other two are derived from it by
-    // convention, so returning them would invite a caller to store them.
     return NextResponse.json({ success: true, key, publicUrl: url });
   } catch (error: any) {
     console.error("Server upload error:", error);

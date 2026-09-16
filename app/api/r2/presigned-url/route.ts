@@ -5,12 +5,14 @@ import { getPresignedUploadUrl } from "@/lib/r2";
 import { ACCEPTED_UPLOAD_TYPES } from "@/lib/images/source";
 
 /**
- * The fallback path since ADR-0007, not the normal one.
+ * The fallback path, not the normal one.
  *
- * Uploads go through POST /api/r2/upload, where sharp writes three Renditions.
- * This route only runs when the browser could not downscale the file, and what
- * it stores is a legacy single object with the source extension and no
- * Renditions — which lib/images/loader.ts serves untouched.
+ * Uploads go through POST /api/r2/upload. This route only runs when the browser
+ * could not downscale the file and the original is too big to post, so it PUTs
+ * direct to the bucket and skips the 4.5 MB function body limit.
+ *
+ * Since ADR-0008 both paths store the same thing — one object under one key,
+ * resized on read — so this differs only in transport, not in what lands in R2.
  */
 
 export async function POST(request: Request) {

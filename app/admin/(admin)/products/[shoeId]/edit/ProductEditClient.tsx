@@ -161,7 +161,7 @@ export default function ProductEditClient({
 
     for (const file of fileArray) {
       try {
-        // Downscale, POST to /api/r2/upload for sharp to make the Renditions,
+        // Downscale, POST to /api/r2/upload to store the object,
         // fall back to a presigned PUT of the original. Shared with the
         // Collections uploader so the two cannot drift (ADR-0007).
         const { key, url: publicUrl } = await uploadImageFile(file, {
