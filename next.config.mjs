@@ -4,11 +4,12 @@
  */
 const SHARP_NATIVE_LIBS = [
   // Where the addon's RPATH actually looks: a sibling of the addon's own
-  // package, which pnpm materialises as a symlink into the store.
+  // package, which pnpm materialises as a symlink into the store. Tracing
+  // follows the glob through it, so the library lands on the exact path the
+  // addon searches. The `@*` is not vagueness about the version: two sharps
+  // are installed — ours, and the one next itself depends on — and both
+  // addons get traced into these routes, so both need their libvips.
   "./node_modules/.pnpm/@img+sharp-linux-x64@*/node_modules/@img/sharp-libvips-linux-x64/lib/**",
-  // The same bytes at their real store path, in case the glob above is not
-  // followed through that symlink. 18 MB to not depend on the answer.
-  "./node_modules/.pnpm/@img+sharp-libvips-linux-x64@*/node_modules/@img/sharp-libvips-linux-x64/lib/**",
   // win32 pulls nothing on Vercel. It is here so a local `pnpm build` exercises
   // both mechanisms the linux globs rely on — including a native library and
   // reaching it through a pnpm symlink — on the one platform where they can be
