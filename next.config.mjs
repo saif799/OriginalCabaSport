@@ -1,3 +1,21 @@
+/**
+ * The shared libraries sharp's native addon dlopens, which output file tracing
+ * cannot see. Listed once; applied to every route that reaches sharp below.
+ */
+const SHARP_NATIVE_LIBS = [
+  // Where the addon's RPATH actually looks: a sibling of the addon's own
+  // package, which pnpm materialises as a symlink into the store.
+  "./node_modules/.pnpm/@img+sharp-linux-x64@*/node_modules/@img/sharp-libvips-linux-x64/lib/**",
+  // The same bytes at their real store path, in case the glob above is not
+  // followed through that symlink. 18 MB to not depend on the answer.
+  "./node_modules/.pnpm/@img+sharp-libvips-linux-x64@*/node_modules/@img/sharp-libvips-linux-x64/lib/**",
+  // win32 pulls nothing on Vercel. It is here so a local `pnpm build` exercises
+  // both mechanisms the linux globs rely on — including a native library and
+  // reaching it through a pnpm symlink — on the one platform where they can be
+  // checked without deploying. See scripts/check-sharp-trace.mjs.
+  "./node_modules/.pnpm/sharp@*/node_modules/@img/sharp-win32-x64/lib/**",
+]
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   typescript: {
@@ -5,6 +23,38 @@ const nextConfig = {
   },
   // sharp ships native binaries and must not be traced into the bundle.
   serverExternalPackages: ["sharp"],
+  /**
+   * Load-bearing. Without these, every sharp route 500s in production with
+   * `ERR_DLOPEN_FAILED: libvips-cpp.so.8.18.6: cannot open shared object file`.
+   *
+   * Output file tracing decides which files are copied into each deployed
+   * function. It follows `require`, so it finds sharp's native addon —
+   * `@img/sharp-linux-x64/lib/sharp-linux-x64.node` — and puts it in the
+   * bundle. But the addon is only the binding: libvips itself lives in a
+   * separate package, `@img/sharp-libvips-linux-x64`, and the addon reaches it
+   * at load time through an ELF RPATH, not a `require`. Nothing in the module
+   * graph points at that file, so tracing leaves it behind and the addon
+   * dlopens a library that was never deployed. The failure is invisible
+   * locally: on Windows and macOS the libvips binary sits *inside* the same
+   * platform package as the addon, so only linux splits them.
+   *
+   * The globs name the directory, not the file, because the soname carries the
+   * libvips version (`...so.8.18.6`) and moves on every sharp upgrade. They are
+   * also pinned to pnpm's store layout, which is the one thing here that a
+   * package-manager change would break — `scripts/check-sharp-trace.mjs` is
+   * what catches that.
+   *
+   * Keyed per route: these are the three that import lib/images/transform.ts.
+   * A fourth route that starts using sharp needs its own entry here.
+   */
+  outputFileTracingIncludes: {
+    "/api/r2/upload": SHARP_NATIVE_LIBS,
+    "/api/admin/images": SHARP_NATIVE_LIBS,
+    // Not "/api/admin/collections/[collectionId]" — these keys are globs, and
+    // the brackets of a dynamic segment read as a character class, so that key
+    // silently matches nothing.
+    "/api/admin/collections/**": SHARP_NATIVE_LIBS,
+  },
   /**
    * Load-bearing, and NOT redundant with `images.loaderFile` below.
    *
