@@ -3,18 +3,18 @@
  * cannot see. Listed once; applied to every route that reaches sharp below.
  */
 const SHARP_NATIVE_LIBS = [
-  // Where the addon's RPATH actually looks: a sibling of the addon's own
-  // package, which pnpm materialises as a symlink into the store. Tracing
-  // follows the glob through it, so the library lands on the exact path the
-  // addon searches. The `@*` is not vagueness about the version: two sharps
-  // are installed — ours, and the one next itself depends on — and both
-  // addons get traced into these routes, so both need their libvips.
-  "./node_modules/.pnpm/@img+sharp-linux-x64@*/node_modules/@img/sharp-libvips-linux-x64/lib/**",
-  // win32 pulls nothing on Vercel. It is here so a local `pnpm build` exercises
-  // both mechanisms the linux globs rely on — including a native library and
-  // reaching it through a pnpm symlink — on the one platform where they can be
-  // checked without deploying. See scripts/check-sharp-trace.mjs.
-  "./node_modules/.pnpm/sharp@*/node_modules/@img/sharp-win32-x64/lib/**",
+  // Two sharps are installed — ours, and the one next itself depends on — and
+  // both addons get traced into these routes, so both need their libvips. One
+  // wins the root hoist and the other nests; which one differs by platform
+  // (next on linux, sharp on win32), hence the `*` rather than a named parent.
+  "./node_modules/@img/sharp-libvips-linux-x64/lib/**",
+  "./node_modules/*/node_modules/@img/sharp-libvips-linux-x64/lib/**",
+  // win32 pulls nothing on Vercel. It is here so a local `pnpm build` proves
+  // the include still reaches a native library at all, on the one platform
+  // where that can be checked without deploying. scripts/check-sharp-trace.mjs
+  // is what reads the result.
+  "./node_modules/@img/sharp-win32-x64/lib/**",
+  "./node_modules/*/node_modules/@img/sharp-win32-x64/lib/**",
 ]
 
 /** @type {import('next').NextConfig} */
@@ -40,10 +40,16 @@ const nextConfig = {
    * platform package as the addon, so only linux splits them.
    *
    * The globs name the directory, not the file, because the soname carries the
-   * libvips version (`...so.8.18.6`) and moves on every sharp upgrade. They are
-   * also pinned to pnpm's store layout, which is the one thing here that a
-   * package-manager change would break — `scripts/check-sharp-trace.mjs` is
-   * what catches that.
+   * libvips version (`...so.8.18.6`) and moves on every sharp upgrade.
+   *
+   * They also assume a hoisted node_modules, which pnpm-workspace.yaml pins.
+   * Under pnpm's default isolated layout the only path that satisfies the
+   * RPATH runs through a symlink, and tracing files from inside a symlinked
+   * directory makes Vercel reject the whole function: "The framework produced
+   * an invalid deployment package for a Serverless Function." That failure is
+   * at deploy time, after a clean build, so nothing local catches it —
+   * `scripts/check-sharp-trace.mjs` checks the libraries are there, not that
+   * the layout around them is packable.
    *
    * Keyed per route: these are the three that import lib/images/transform.ts.
    * A fourth route that starts using sharp needs its own entry here.

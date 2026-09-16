@@ -20,17 +20,25 @@
  * script reads the trace manifests Vercel uses to build each function and fails
  * if a route traces an addon without a libvips library beside it.
  *
+ * It also fails if a traced path runs through a symlinked directory. Vercel
+ * rejects such a function outright — "The framework produced an invalid
+ * deployment package for a Serverless Function" — and it does so at deploy
+ * time, after a green build, which is a slow and confusing way to find out.
+ * pnpm's default isolated layout puts the only RPATH-satisfying copy of
+ * libvips behind exactly such a symlink; pnpm-workspace.yaml pins a hoisted
+ * layout to avoid it, and this is the check that notices if that comes undone.
+ *
  * ## Why it is meaningful on Windows
  *
  * It cannot see the linux files from a Windows build — they are not installed.
- * What it does check is the two mechanisms the linux globs depend on: that
- * `outputFileTracingIncludes` pulls in a native library at all, and that its
- * glob is followed through a pnpm store symlink. Both are exercised by the
- * win32 entry in SHARP_NATIVE_LIBS, whose libvips DLLs sit behind a symlink at
- * `.pnpm/sharp@<version>/node_modules/@img/`. If those stop arriving, the linux globs
- * have stopped working too and production is about to 500.
+ * What it does check is that `outputFileTracingIncludes` still reaches a native
+ * library at all, via the win32 entry in SHARP_NATIVE_LIBS, and that no traced
+ * path runs through a symlink. The second half is platform-independent: it is
+ * the node_modules layout that is being judged, not the binaries, so a Windows
+ * run catches a layout regression that would fail the linux deploy.
  */
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, lstatSync } from "node:fs";
+import { resolve, dirname, sep } from "node:path";
 
 /** Routes that import lib/images/transform.ts, and so reach sharp. */
 const ROUTES = [
@@ -61,6 +69,30 @@ for (const route of ROUTES) {
     // Nothing to judge: no sharp addon was traced for this route at all.
     console.error(`SKIP     ${route} — no sharp addon traced`);
     continue;
+  }
+
+  // Any symlink between the function root and a traced file makes the whole
+  // deployment package invalid, regardless of what the file is.
+  const base = resolve(`.next/server/app/${route}`);
+  const symlinked = [];
+  for (const rel of files) {
+    let p = base;
+    for (const seg of rel.split("/")) {
+      p = resolve(p, seg);
+      try {
+        if (lstatSync(p).isSymbolicLink()) { symlinked.push(`${p.split(sep).slice(-4).join("/")} (from ${rel})`); break; }
+      } catch { break; }
+    }
+  }
+  if (symlinked.length) {
+    console.error(
+      `FAIL     ${route} — ${symlinked.length} traced path(s) run through a symlink`
+    );
+    for (const x of symlinked.slice(0, 3)) console.error(`           ${x}`);
+    console.error(
+      `           Vercel will reject this function as an invalid deployment package`
+    );
+    failed = true;
   }
 
   checked++;

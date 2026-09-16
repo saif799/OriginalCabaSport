@@ -1,3 +1,22 @@
+# Vercel's packager rejects a Serverless Function whose files sit inside a
+# symlinked directory: "The framework produced an invalid deployment package
+# for a Serverless Function. Typically this means that the framework produces
+# files in symlinked directories."
+#
+# pnpm's default isolated layout is made of symlinks. sharp's libvips lives in
+# its own package, and the addon reaches it through a symlinked sibling under
+# .pnpm/. next.config.mjs has to trace that library into the function or every
+# sharp route 500s on ERR_DLOPEN_FAILED — and doing so is precisely what puts
+# function files under a symlink.
+#
+# A hoisted layout lays the packages out as real directories, npm-style, so the
+# addon and its libvips are true siblings and the ELF RPATH resolves with no
+# symlink involved. The cost is a larger node_modules.
+#
+# Set here rather than in .npmrc because pnpm 11 reads its settings from this
+# file; .npmrc carries the same setting for the pnpm 10 that Vercel runs.
+nodeLinker: hoisted
+
 allowBuilds:
   better-sqlite3: false
   bufferutil: false
