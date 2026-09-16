@@ -19,8 +19,6 @@
     "@aws-sdk/s3-request-presigner": "^3.1112.0",
     "@cloudflare/workers-types": "latest",
     "@electric-sql/pglite": "latest",
-    "@libsql/client": "latest",
-    "@libsql/client-wasm": "latest",
     "@neondatabase/serverless": "^1.0.2",
     "@op-engineering/op-sqlite": "latest",
     "@opentelemetry/api": "latest",
