@@ -32,6 +32,7 @@ import {
 import { cn } from "@/lib/utils";
 import { buildOrderColumns, type OrderType } from "./columns";
 import type { DeliveryRecord } from "@/lib/orders/deliveryRecord";
+import type { EchangeLinks } from "@/lib/orders/echange";
 import { useUrlParams } from "@/lib/hooks/useUrlParams";
 import {
   ALL_STATUSES,
@@ -59,6 +60,8 @@ interface DataTableProps {
   sort: OrderSort;
   /** Delivery Records by order id — ready-to-ship rows only. See columns.tsx. */
   deliveryRecords: Record<string, DeliveryRecord>;
+  /** Échange links by order id, for this page's rows. See columns.tsx. */
+  echangeLinks: Record<string, EchangeLinks>;
 }
 
 export function DataTable({
@@ -72,6 +75,7 @@ export function DataTable({
   query,
   sort,
   deliveryRecords,
+  echangeLinks,
 }: DataTableProps) {
   const router = useRouter();
   const { isPending, setParams } = useUrlParams();
@@ -106,9 +110,11 @@ export function DataTable({
         },
         onOrderDeleted: () => router.refresh(),
         onOrderMessaged: () => router.refresh(),
+        onOrderExchanged: () => router.refresh(),
         deliveryRecords,
+        echangeLinks,
       }),
-    [sort, setParams, router, deliveryRecords]
+    [sort, setParams, router, deliveryRecords, echangeLinks]
   );
 
   const table = useReactTable({

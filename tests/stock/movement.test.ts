@@ -153,6 +153,42 @@ describe("applyMovement: cancel and retour", () => {
   });
 });
 
+describe("applyMovement: echange-return", () => {
+  // The Returned Pair of an Échange coming back once the swap is confirmed.
+  it("puts the Returned Pair back into Physical Quantity and re-flags a sold-out variant", async () => {
+    const inv = await seedVariant(1);
+    await move({ reason: "sale", items: [{ inventoryId: inv.id, quantity: 1 }] });
+    expect(await notifierDirection(inv.id)).toEqual(["remove"]);
+
+    await move({ reason: "echange-return", items: [{ inventoryId: inv.id, quantity: 1 }] });
+
+    const [row] = await db.select().from(shoeInventory).where(eq(shoeInventory.id, inv.id));
+    expect(row.quantity).toBe(1);
+    expect(await notifierDirection(inv.id)).toEqual([]);
+  });
+
+  it("gives a borrower-placed Original Order's pair back to that Borrower's Holdings", async () => {
+    const inv = await seedVariant(2);
+    const b = await seedBorrower();
+    await move({ reason: "lend", items: [{ inventoryId: inv.id, quantity: 2 }], borrowerId: b.id });
+    await move({
+      reason: "borrower-sale",
+      items: [{ inventoryId: inv.id, quantity: 1 }],
+      borrowerId: b.id,
+    });
+
+    await move({
+      reason: "echange-return",
+      items: [{ inventoryId: inv.id, quantity: 1 }],
+      borrowerId: b.id,
+    });
+
+    const [row] = await db.select().from(shoeInventory).where(eq(shoeInventory.id, inv.id));
+    expect(row.quantity).toBe(2);
+    expect(await heldByBorrower(b.id, inv.id)).toBe(2);
+  });
+});
+
 describe("applyMovement: correction", () => {
   it("a correction that dips to zero and back leaves nothing queued", async () => {
     const inv = await seedVariant(3);

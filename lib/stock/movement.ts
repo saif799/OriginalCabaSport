@@ -13,6 +13,11 @@ export type MovementReason =
   | "borrower-sale"
   | "cancel"
   | "retour"
+  // The Returned Pair of an Échange, once its Delivery Leg is delivered
+  // (docs/adr/0009). Moves stock exactly as "retour" does; named apart because
+  // the pair it brings back was sold by the Original Order, not by the order
+  // it is attributed to.
+  | "echange-return"
   | "arrival"
   | "lend"
   | "return";
@@ -42,6 +47,7 @@ const DIRECTION: Record<MovementReason, "increment" | "decrement" | "none"> = {
   "borrower-sale": "decrement",
   cancel: "increment",
   retour: "increment",
+  "echange-return": "increment",
   arrival: "increment",
   lend: "none",
   return: "none",
@@ -52,14 +58,15 @@ const LENDED_SIGN: Partial<Record<MovementReason, 1 | -1>> = {
   "borrower-sale": -1,
   cancel: 1,
   retour: 1,
+  "echange-return": 1,
   lend: 1,
   return: -1,
 };
 
-// "borrower-sale"/"lend"/"return" make no sense without a borrower. "cancel"
-// and "retour" write a LendedShoes row too, but only when the order they're
-// reversing happened to be a borrower's — a plain owner order has no borrowerId
-// and that's fine, so those two don't belong in this set.
+// "borrower-sale"/"lend"/"return" make no sense without a borrower. "cancel",
+// "retour" and "echange-return" write a LendedShoes row too, but only when the
+// order they're reversing happened to be a borrower's — a plain owner order has
+// no borrowerId and that's fine, so those don't belong in this set.
 const BORROWER_REQUIRED = new Set<MovementReason>([
   "borrower-sale",
   "lend",
@@ -71,6 +78,7 @@ const FLAGS_NOTIFIER = new Set<MovementReason>([
   "borrower-sale",
   "cancel",
   "retour",
+  "echange-return",
   "arrival",
 ]);
 

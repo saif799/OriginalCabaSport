@@ -79,6 +79,14 @@ export const ordersTable = pgTable(
     // message was *opened* in WhatsApp, not that WhatsApp delivered it — a
     // wa.me link gives nothing back. Null means never messaged.
     confirmationSentAt: timestamp("confirmation_sent_at", { withTimezone: true }),
+    // Échange (type 2) sync state, null on every other order — see ADR-0009
+    // and lib/orders/echange.ts. `returnLegSeenAt` is when the sync first saw
+    // the Échange's own tracking in a return status: the refusal guard waits
+    // 24h from it for a Delivery Leg. `echangeResolvedAt` is set once the
+    // Échange is decided (swapped or refused); from then on its own tracking,
+    // which keeps reporting a return for days, never writes its status again.
+    returnLegSeenAt: timestamp("return_leg_seen_at", { withTimezone: true }),
+    echangeResolvedAt: timestamp("echange_resolved_at", { withTimezone: true }),
     createdAt: date("created_at").notNull().defaultNow(),
     updatedAt: date("updated_at").notNull().defaultNow(),
   },
@@ -141,6 +149,40 @@ export const orderItems = pgTable("order_items", {
   quantity: integer("quantity").notNull().default(1),
   createdAt: date("created_at").notNull().defaultNow(),
 });
+
+/**
+ * Which Original Order lines an Échange takes back, and how many pairs of each
+ * — the Returned Pairs. The Original Order is the one these lines belong to
+ * (always exactly one; enforced by `placeEchange`, not by a column).
+ *
+ * Across every Échange, a line's returned quantity never exceeds its
+ * `order_items.quantity`: each pair is exchangeable once. That is checked in
+ * `placeEchange` under a row lock rather than by a constraint, because it is a
+ * sum across rows. Cancelling an Échange deletes its rows, which is what makes
+ * the pairs exchangeable again. Legacy Échanges have none.
+ */
+export const echangeReturns = pgTable(
+  "echange_returns",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    echangeId: varchar("echange_id")
+      .notNull()
+      .references(() => ordersTable.id, { onDelete: "cascade" }),
+    orderItemId: uuid("order_item_id")
+      .notNull()
+      .references(() => orderItems.id, { onDelete: "cascade" }),
+    quantity: integer("quantity").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    unique("echange_returns_echange_item_unique").on(t.echangeId, t.orderItemId),
+    // "How much of this line is already exchanged" runs on every Échange
+    // created and every orders page render; Postgres does not index FKs.
+    index("echange_returns_order_item_id_idx").on(t.orderItemId),
+  ],
+);
 
 export const stautsGroupsTable = pgTable("status_groups_table", {
   id: uuid().primaryKey().defaultRandom(),

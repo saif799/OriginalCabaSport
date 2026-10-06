@@ -1,12 +1,9 @@
 import { requireAdmin } from "@/lib/auth/guard";
-import { db, txClient } from "@/lib/db";
-import { orderItems, ordersTable, shoeModels } from "@/lib/schema";
-import { applyMovement } from "@/lib/stock/movement";
+import { db } from "@/lib/db";
+import { shoeModels } from "@/lib/schema";
 import { revalidateStockPaths } from "@/lib/stock/revalidate";
-import { CANCELED_STATUS_ID } from "@/lib/orders/status";
 import { placeOrder, type OrderDraft } from "@/lib/orders/placeOrder";
-import { getProvider } from "@/lib/delivery";
-import { eq } from "drizzle-orm";
+import { cancelOrder } from "@/lib/orders/cancelOrder";
 import { after } from "next/server";
 import { capiSignalsFromRequest, sendPurchaseEvent } from "@/lib/storefront/capi";
 import { getPurchaseContents } from "@/lib/storefront/purchaseContents";
@@ -98,65 +95,12 @@ export async function DELETE(request: Request) {
       return Response.json({ error: "order ID is required." }, { status: 400 });
     }
 
-    const [order] = await db
-      .select({
-        provider: ordersTable.provider,
-        borrowerId: ordersTable.borrowerId,
-      })
-      .from(ordersTable)
-      .where(eq(ordersTable.id, orderId))
-      .limit(1);
-
-    if (!order) {
-      return Response.json({ error: "Order not found." }, { status: 404 });
+    const result = await cancelOrder(orderId);
+    if (!result.ok) {
+      return Response.json({ error: result.error }, { status: result.status });
     }
 
-    const provider = getProvider(order.provider);
-
-    let deletion;
-    try {
-      deletion = await provider.deleteOrder(orderId);
-    } catch (providerError) {
-      console.log("provider failed to delete order", providerError);
-      return Response.json(
-        { error: `Failed to delete order: ${(providerError as Error).message}` },
-        { status: 502 }
-      );
-    }
-
-    if (!deletion.ok) {
-      return Response.json(
-        { error: "Provider failed to delete order" },
-        { status: 500 }
-      );
-    }
-
-    const items = await db
-      .select({
-        inventoryId: orderItems.shoeInventoryId,
-        quantity: orderItems.quantity,
-      })
-      .from(orderItems)
-      .where(eq(orderItems.orderId, orderId));
-
-    await txClient().transaction(async (tx) => {
-      await tx
-        .update(ordersTable)
-        .set({ statusId: CANCELED_STATUS_ID })
-        .where(eq(ordersTable.id, orderId));
-
-      await applyMovement(
-        {
-          reason: "cancel",
-          items,
-          borrowerId: order.borrowerId ?? undefined,
-          orderId,
-        },
-        tx,
-      );
-    });
-
-    revalidateStockPaths(order.borrowerId ?? undefined);
+    revalidateStockPaths(result.borrowerId ?? undefined);
 
     return Response.json({ message: "Order deleted successfully" });
   } catch (error) {

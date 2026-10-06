@@ -5,6 +5,11 @@ import { revalidateStockPaths } from "@/lib/stock/revalidate";
 import { getAllStatusGroups, buildNameToIdMap } from "@/lib/orders/status";
 import { DELIVERY_PROVIDERS } from "@/lib/delivery";
 import { and, eq, inArray, ne } from "drizzle-orm";
+import { ECHANGE_TYPE } from "@/lib/orders/orderType";
+import {
+  resolveEchanges,
+  takesStatusFromOwnTracking,
+} from "@/lib/orders/echange";
 import { hasAdminSession } from "@/lib/auth/guard";
 import { isCronRequest } from "@/lib/auth/session";
 
@@ -74,6 +79,10 @@ export async function GET(request: Request) {
         and(
           inArray(ordersTable.id, groupedStatuses["retour"] || []),
           ne(ordersTable.statusId, statusNameToId["retour"]),
+          // An Échange's own tracking goes to a return status when the swap
+          // happens, so a return there says nothing about its Outgoing Pairs.
+          // resolveEchanges decides it below (ADR-0009).
+          ne(ordersTable.type, ECHANGE_TYPE),
         ),
       );
 
@@ -128,16 +137,25 @@ export async function GET(request: Request) {
             and(
               inArray(ordersTable.id, groupedStatuses[statusName]),
               ne(ordersTable.statusId, statusId),
+              // Delivered and returned Échanges are resolveEchanges' to decide.
+              takesStatusFromOwnTracking(statusId),
             ),
           )
           .returning({ id: ordersTable.id });
       }),
     );
 
+    const echanges = await resolveEchanges(groupedStatuses["retour"] ?? []);
+    const echangesDecided = echanges.delivered.length + echanges.refused.length;
+
     revalidateStockPaths();
 
     return Response.json(
-      { groupedStatuses, updatedCount: updated.flat().length },
+      {
+        groupedStatuses,
+        echanges,
+        updatedCount: updated.flat().length + echangesDecided,
+      },
       { status: 200 },
     );
   } catch (error) {

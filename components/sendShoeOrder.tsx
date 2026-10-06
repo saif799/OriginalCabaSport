@@ -384,25 +384,10 @@ export default function SendOrderForm({
           </Select>
         </div>
 
+        {/* No Service Type picker: this form only places a Livraison. An
+            Échange is started from its Original Order's row in /admin/orders,
+            which links the pairs it takes back (ADR-0009). */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label htmlFor="service-type" className="pb-1">
-              Service Type
-            </Label>
-            <Select
-              name="service-type"
-              value={String(formData.type)}
-              onValueChange={(value) => patch({ type: Number(value) })}
-            >
-              <SelectTrigger id="service-type" className="w-full">
-                <SelectValue placeholder="Select order type" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="1">Livraison</SelectItem>
-                <SelectItem value="2">echange</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
           <div className="space-y-2">
             <Label htmlFor="delivery-type" className="pb-1">
               delivery Type

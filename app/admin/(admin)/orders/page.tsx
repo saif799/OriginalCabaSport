@@ -14,6 +14,7 @@ import {
 import { READY_TO_SHIP_STATUS_ID } from "@/lib/orders/status";
 import { canonicalPhone } from "@/lib/orders/phone";
 import { getDeliveryRecordsByOrder } from "@/lib/orders/deliveryRecord";
+import { getEchangeLinks } from "@/lib/orders/echange";
 import { OrdersTabs } from "./OrdersTabs";
 import { DataTable, type StatusOption } from "./data-table";
 import { StoreSalesTable } from "./StoreSalesTable";
@@ -148,8 +149,11 @@ async function renderOnlineOrders({
       ? ilike(ordersTable.telephone, `%${phoneQuery}%`)
       : undefined;
 
+  // The tracking too, which is how an Échange links to its Original Order and
+  // back (see columns.tsx).
   const search = searchPattern
     ? or(
+        ilike(ordersTable.id, searchPattern),
         ilike(ordersTable.nom_client, searchPattern),
         ilike(ordersTable.reference, searchPattern),
         ilike(ordersTable.telephone, searchPattern),
@@ -217,14 +221,18 @@ async function renderOnlineOrders({
   // The Delivery Record is a "should I send this?" signal, so it is resolved
   // only for the rows where that question is still open. On a page with none —
   // any other status filter — this costs no query at all.
-  const deliveryRecords = await getDeliveryRecordsByOrder(
-    orders.filter((order) => order.statusId === READY_TO_SHIP_STATUS_ID),
-  );
+  const [deliveryRecords, echangeLinks] = await Promise.all([
+    getDeliveryRecordsByOrder(
+      orders.filter((order) => order.statusId === READY_TO_SHIP_STATUS_ID),
+    ),
+    getEchangeLinks(orders.map((order) => order.id)),
+  ]);
 
   return (
     <DataTable
       data={orders}
       deliveryRecords={deliveryRecords}
+      echangeLinks={echangeLinks}
       statuses={statuses}
       total={total}
       page={page}

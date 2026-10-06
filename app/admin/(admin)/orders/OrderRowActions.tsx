@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { MessageCircle, MoreHorizontal } from "lucide-react";
+import { ArrowLeftRight, MessageCircle, MoreHorizontal } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -23,28 +23,48 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { EN_LIVRAISON_STATUS_ID } from "@/lib/orders/status";
+import {
+  DELIVERED_STATUS_ID,
+  EN_LIVRAISON_STATUS_ID,
+} from "@/lib/orders/status";
+import type { EchangeLinks } from "@/lib/orders/echange";
 import type { OrderType } from "./columns";
 import { WhatsAppMessageDialog } from "./WhatsAppMessageDialog";
+import { EchangeDialog } from "./EchangeDialog";
 
 export function OrderRowActions({
   order,
+  echange,
   onDeleted,
   onMessaged,
+  onExchanged,
 }: {
   order: OrderType;
+  /** How this row sits in an Échange; absent when the page did not resolve it. */
+  echange: EchangeLinks | undefined;
   onDeleted: () => void;
   /** Called after a row is messaged, so its badge appears. */
   onMessaged: () => void;
+  /** Called after an Échange is started from this row, so it appears. */
+  onExchanged: () => void;
 }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [whatsAppOpen, setWhatsAppOpen] = useState(false);
+  const [echangeOpen, setEchangeOpen] = useState(false);
 
   // Offered only while the parcel is with the livreur. The message says it is
   // arriving imminently, which is false on every other status — and on the 444
   // delivered rows it would be sent to someone who already has their shoes.
   const canMessage = order.statusId === EN_LIVRAISON_STATUS_ID;
+
+  // The customer must have the pair to hand it back, only DHD carries an
+  // Échange, and each pair goes once (ADR-0009). A delivered Échange counts:
+  // to swap again, start from the Échange.
+  const canExchange =
+    order.provider === "dhd" &&
+    order.statusId === DELIVERED_STATUS_ID &&
+    (echange?.exchangeablePairs ?? 0) > 0;
 
   const handleDelete = async () => {
     setIsDeleting(true);
@@ -101,6 +121,17 @@ export function OrderRowActions({
                 : "Send WhatsApp"}
             </DropdownMenuItem>
           ) : null}
+          {canExchange ? (
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault();
+                setEchangeOpen(true);
+              }}
+            >
+              <ArrowLeftRight className="h-4 w-4" />
+              Échanger
+            </DropdownMenuItem>
+          ) : null}
           <DropdownMenuSeparator />
           <DropdownMenuItem
             variant="destructive"
@@ -122,6 +153,15 @@ export function OrderRowActions({
           open={whatsAppOpen}
           onOpenChange={setWhatsAppOpen}
           onSent={onMessaged}
+        />
+      ) : null}
+
+      {echangeOpen ? (
+        <EchangeDialog
+          order={order}
+          open={echangeOpen}
+          onOpenChange={setEchangeOpen}
+          onCreated={onExchanged}
         />
       ) : null}
 

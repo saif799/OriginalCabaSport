@@ -195,27 +195,10 @@ export default function MultipleItemsOrder({
               </Alert>
             )}
 
+            {/* No Service Type picker: this form only places a Livraison.
+                An Échange is started from its Original Order's row in
+                /admin/orders, which links the pairs it takes back. */}
             <div className="flex gap-4">
-              <div className="grow space-y-2">
-                <Label htmlFor="type of service" className="pb-1">
-                  Service Type
-                </Label>
-                <Select
-                  name="type of service"
-                  value={String(formData.type)}
-                  onValueChange={(value) =>
-                    setFormData({ ...formData, type: Number(value) })
-                  }
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select order type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="1">Livraison</SelectItem>
-                    <SelectItem value="2">echange</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
               <div className="grow space-y-2">
                 <Label htmlFor="type of delivery" className="pb-1">
                   delivery Type

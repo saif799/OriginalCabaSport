@@ -4,6 +4,7 @@ import { applyMovement } from "@/lib/stock/movement";
 import { getProvider, type DeliveryProvider, type DeliveryProviderName } from "@/lib/delivery";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { canonicalPhone } from "@/lib/orders/phone";
+import { ECHANGE_TYPE } from "@/lib/orders/orderType";
 
 /**
  * The shape every order-creation form builds and `POST /api/order` accepts.
@@ -64,6 +65,20 @@ function reject(status: number, error: string): PlaceOrderResult {
 }
 
 /**
+ * Thrown from a `placeParcel` `alsoPersist` hook to refuse the order from
+ * inside its transaction. The write rolls back, the courier parcel that was
+ * just created is cancelled, and the caller gets an ordinary rejection.
+ */
+export class PersistRejected extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+/**
  * Validates the draft, checks Borrower holdings for a borrower-placed sale,
  * reaches the courier, and — only once the courier confirms a tracking
  * number — writes the order, its lines and the Stock Movement atomically.
@@ -73,6 +88,27 @@ function reject(status: number, error: string): PlaceOrderResult {
 export async function placeOrder(
   draft: OrderDraft,
   deps: PlaceOrderDeps = {},
+): Promise<PlaceOrderResult> {
+  // An Échange is started from its Original Order (`placeEchange`), which
+  // records the pairs it takes back. One placed here would carry no such link,
+  // and the status sync could never put its Returned Pair back in stock.
+  if (draft.type === ECHANGE_TYPE) {
+    return reject(400, "An Échange is started from its Original Order, in /admin/orders.");
+  }
+  return placeParcel(draft, deps);
+}
+
+/**
+ * `placeOrder` without its Échange guard, plus an optional extra write that
+ * joins the order's transaction after the order row, its lines and the Stock
+ * Movement. Only `placeEchange` calls this directly: it passes `type = 2` and
+ * writes the Échange's links in `alsoPersist`, which may throw
+ * `PersistRejected` to refuse the order after all.
+ */
+export async function placeParcel(
+  draft: OrderDraft,
+  deps: PlaceOrderDeps = {},
+  alsoPersist?: (exec: Executor, orderId: string) => Promise<void>,
 ): Promise<PlaceOrderResult> {
   const {
     nom_client,
@@ -259,12 +295,30 @@ export async function placeOrder(
       },
       exec,
     );
+
+    if (alsoPersist) await alsoPersist(exec, tracking);
   }
 
-  if (deps.exec) {
-    await persist(deps.exec);
-  } else {
-    await txClient().transaction((tx) => persist(tx));
+  try {
+    if (deps.exec) {
+      await persist(deps.exec);
+    } else {
+      await txClient().transaction((tx) => persist(tx));
+    }
+  } catch (error) {
+    if (!(error instanceof PersistRejected)) throw error;
+    // Nothing was written, so the parcel the courier just created belongs to
+    // no order. Take it back rather than leave a tracking nobody can find.
+    const cancelled = await provider.deleteOrder(tracking).then(
+      (deletion) => deletion.ok,
+      () => false,
+    );
+    return reject(
+      error.status,
+      cancelled
+        ? error.message
+        : `${error.message} Parcel ${tracking} was created and could not be cancelled — delete it from the courier's dashboard.`,
+    );
   }
 
   return { ok: true, orderId: tracking };
