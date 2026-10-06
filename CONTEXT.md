@@ -84,7 +84,25 @@ The units of one size-variant currently at one Borrower's location, computed liv
 Any change to Physical Quantity or Storage Location, always carrying a reason (`sale`, `borrower-sale`, `cancel`, `retour`, `arrival`, `lend`, `return`, or `correction`). The single owner of every Stock Movement is `applyMovement` in `lib/stock/movement.ts` — see ADR-0004.
 
 ### Échange
-An order `type` (`type = 2`) representing a customer exchange. Today it is handled identically to a `sale` on the outgoing side — it decrements stock like any other sale — and the incoming pair the customer sends back is reconciled by hand outside the system. The intended behaviour (decrement the outgoing variant, increment the incoming one, atomically) is **not implemented**. Tracked separately in [#13](https://github.com/saif799/inventory-system-ocs/issues/13) — do not conflate an Échange's stock effect with a `retour` when reading order-status code.
+An order (`type = 2`) that sends a customer a replacement for a pair they already received, and collects that pair in the same courier visit. Every Échange is started from, and linked to, exactly one Original Order, and returns some or all of its pairs — each pair of an Original Order can be exchanged at most once (to swap again, start from the Échange). Only DHD carries Échanges.
+
+Its montant is the **price difference** (new minus returned), never the full price: the customer already paid the Original Order. A cheaper swap has a montant of `0` and any refund happens outside the app. A delivered Échange is a delivered order like any other — it counts towards revenue and the Delivery Record.
+
+The eight Échanges placed before Original Orders existed are **Legacy Échanges**: unlinked, their stock reconciled by hand. Tracked in [#13](https://github.com/saif799/inventory-system-ocs/issues/13) — do not conflate an Échange's stock effect with a `retour` when reading order-status code.
+
+### Original Order
+The delivered order whose pair the customer is giving back in an Échange. **It stays delivered**: an Échange swaps a pair inside a sale that happened, it does not undo it — so the Original Order keeps its revenue and still counts as "arrived" in the customer's Delivery Record. It only carries a link to the Échange that replaced its pair.
+_Avoid_: previous order, old order.
+
+### Outgoing Pair / Returned Pair
+The two sides of an Échange. The **Outgoing Pair** is the replacement sent to the customer; the **Returned Pair** is the one they hand back to the livreur. The Returned Pair re-enters Physical Quantity at the moment the swap is confirmed, the same way an ordinary retour does — not when it physically reaches the store.
+_Avoid_: incoming pair (it reads as the Outgoing Pair from the customer's side).
+
+### Exchange Legs
+DHD records one Échange as two parcels. The **Return Leg** is the Échange's own tracking: once the swap happens, DHD switches it to a return status, because from then on it carries the Returned Pair back. The **Delivery Leg** is the same tracking suffixed `-EXCH`, created at the swap and marked delivered. A return status on the Return Leg therefore does **not** mean the Outgoing Pair came back — only the absence of a Delivery Leg says that.
+
+### Refused Échange
+An Échange whose customer refused the Outgoing Pair: the Return Leg goes to a return status and no Delivery Leg ever appears. It is an ordinary retour of the Outgoing Pair, and the Original Order is untouched — the customer kept the pair they had.
 
 ## Delivery & Coverage
 
