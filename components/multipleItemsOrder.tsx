@@ -28,6 +28,7 @@ import {
 } from "./ui/dialog";
 import { GroupedProduct } from "@/app/admin/(admin)/page";
 import type { OrderDraft, OrderFormFields } from "@/lib/orders/placeOrder";
+import type { DeliveryProviderName } from "@/lib/delivery";
 
 import { ChevronsUpDown } from "lucide-react";
 
@@ -67,6 +68,8 @@ export default function MultipleItemsOrder({
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [source, setSource] = useState("i");
+  const [provider, setProvider] = useState<DeliveryProviderName>("dhd");
+  const isYalidine = provider === "yalidine";
   const [selectedShoes, setSelectedShoes] = useState<
     Array<{ shoe: GroupedProduct; inventoryId: string; selectedSize: string }>
   >([]);
@@ -95,7 +98,7 @@ export default function MultipleItemsOrder({
   });
 
   const { wilayas, communeNames, fee, hasTarif } = useDeliveryCoverage(
-    "dhd",
+    provider,
     formData.code_wilaya,
     formData.stop_desk as 0 | 1,
   );
@@ -120,9 +123,8 @@ export default function MultipleItemsOrder({
         ...formData,
         source,
         produit,
-        // This form has no delivery-company or borrower picker: always the
-        // owner's stock via DHD, same as before this was made explicit.
-        provider: "dhd",
+        provider,
+        // No borrower picker here: always the owner's stock.
         borrowerId: null,
         selectedSizeShoeId: selectedShoes.map((s) => s.inventoryId),
       };
@@ -150,10 +152,16 @@ export default function MultipleItemsOrder({
         });
         onSuccess?.();
       } else {
-        const errorData = await res.json();
+        const errorData = await res.json().catch(() => ({}));
         console.log(errorData);
 
-        setError("Failed to create order");
+        // Surface the server's reason: a courier rejection (502) names what
+        // the courier refused, which a bare "failed" hides.
+        setError(
+          typeof errorData?.error === "string"
+            ? errorData.error
+            : "Failed to create order",
+        );
       }
     } catch (error) {
       console.error("Error submitting order to API:", error);
@@ -198,14 +206,43 @@ export default function MultipleItemsOrder({
             {/* No Service Type picker: this form only places a Livraison.
                 An Échange is started from its Original Order's row in
                 /admin/orders, which links the pairs it takes back. */}
-            <div className="flex gap-4">
-              <div className="grow space-y-2">
-                <Label htmlFor="type of delivery" className="pb-1">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="provider" className="pb-1">
+                  Delivery Company
+                </Label>
+                <Select
+                  name="provider"
+                  value={provider}
+                  onValueChange={(value) => {
+                    const next = value as DeliveryProviderName;
+                    setProvider(next);
+                    // Yalidine is used stop-desk only here; force bureau, and
+                    // drop a commune picked from the other courier's coverage.
+                    setFormData({
+                      ...formData,
+                      commune: "",
+                      stop_desk: next === "yalidine" ? 1 : formData.stop_desk,
+                    });
+                  }}
+                >
+                  <SelectTrigger id="provider" className="w-full">
+                    <SelectValue placeholder="Select delivery company" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="dhd">DHD (Ecotrack)</SelectItem>
+                    <SelectItem value="yalidine">Yalidine (stop desk)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="delivery-type" className="pb-1">
                   delivery Type
                 </Label>
                 <Select
-                  name="type of delivery"
+                  name="delivery-type"
                   value={String(formData.stop_desk)}
+                  disabled={isYalidine}
                   onValueChange={(value) =>
                     setFormData({
                       ...formData,
@@ -214,7 +251,7 @@ export default function MultipleItemsOrder({
                     })
                   }
                 >
-                  <SelectTrigger className="w-full">
+                  <SelectTrigger id="delivery-type" className="w-full">
                     <SelectValue placeholder="Select order type" />
                   </SelectTrigger>
                   <SelectContent>
@@ -222,6 +259,11 @@ export default function MultipleItemsOrder({
                     <SelectItem value="1">bureau</SelectItem>
                   </SelectContent>
                 </Select>
+                {isYalidine && (
+                  <p className="text-xs text-slate-500">
+                    Yalidine is stop-desk only here.
+                  </p>
+                )}
               </div>
             </div>
 
@@ -280,7 +322,7 @@ export default function MultipleItemsOrder({
                     });
                   }}
                 >
-                  <SelectTrigger className="w-full">
+                  <SelectTrigger id="wilaya" className="w-full">
                     <SelectValue placeholder="Select a wilaya..." />
                   </SelectTrigger>
                   <SelectContent className="max-w-[calc(100vw-2rem)]">
@@ -315,7 +357,7 @@ export default function MultipleItemsOrder({
                     })
                   }
                 >
-                  <SelectTrigger className="w-full">
+                  <SelectTrigger id="commune" className="w-full">
                     <SelectValue placeholder="Select a commune..." />
                   </SelectTrigger>
                   <SelectContent className="max-w-[calc(100vw-2rem)]">
