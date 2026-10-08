@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 
 import { DataTableColumnHeader } from "./data-table-column-header";
 import { ordersTable } from "@/lib/schema";
-import { READY_TO_SHIP_STATUS_NAME } from "@/lib/orders/status";
+import { statusBadgeClass } from "@/lib/orders/status";
 import type { DeliveryRecord } from "@/lib/orders/deliveryRecord";
 import type { EchangeLinks } from "@/lib/orders/echange";
 import { ECHANGE_TYPE } from "@/lib/orders/orderType";
@@ -196,9 +196,8 @@ export function buildOrderColumns({
         const name = row.getValue("statusName") as string | null;
         return (
           <Badge
-            variant={
-              name === READY_TO_SHIP_STATUS_NAME ? "onDelivery" : "outline"
-            }
+            variant="outline"
+            className={statusBadgeClass(row.original.statusId)}
           >
             {name ?? "Unknown"}
           </Badge>

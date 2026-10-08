@@ -10,6 +10,7 @@ import {
   type EventFamily,
 } from "@/lib/stock/eventFamily";
 import { SHOP_TZ, type HistoryEvent, type HistorySize } from "@/lib/stock/history";
+import { statusBadgeClass } from "@/lib/orders/status";
 import { ALL_STATUSES } from "@/app/admin/(admin)/orders/params";
 
 // Formatted on the server in the shop's zone, so a row reads the same from a
@@ -228,7 +229,11 @@ function SourceLink({ event }: { event: HistoryEvent }) {
         </Link>
         {/* The order's status today — on a reconstructed sale this is the
             only trace of whether the pairs came back. */}
-        <Badge variant="outline" title="The order's status now">
+        <Badge
+          variant="outline"
+          className={statusBadgeClass(event.order.statusId)}
+          title="The order's status now"
+        >
           {event.order.statusName ?? "Unknown"}
         </Badge>
       </>

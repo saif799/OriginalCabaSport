@@ -19,13 +19,6 @@ const badgeVariants = cva(
           "text-foreground [a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
         success:
           "border-transparent bg-green-400 text-primary-foreground [a&]:hover:bg-primary/90",
-        onDelivery:
-          "border-transparent bg-orange-400 text-primary-foreground [a&]:hover:bg-primary/90",
-        // Amber rather than reusing `onDelivery`: that one is the same family
-        // of orange but is named for an order status, and the Status column
-        // still uses it for exactly that. Two badges in one row meaning two
-        // different things should not share a variant name.
-        //
         // Dark text, not the near-white the siblings use: amber-500 is light
         // enough that white lands around 2:1, so a white default would be a
         // variant every caller has to correct.
