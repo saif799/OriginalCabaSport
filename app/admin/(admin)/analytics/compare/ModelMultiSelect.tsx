@@ -39,7 +39,7 @@ export function ModelMultiSelect({
     if (ids.length) params.set("models", ids.join(","));
     else params.delete("models");
     startTransition(() =>
-      router.push(`/analytics/compare?${params.toString()}`, { scroll: false }),
+      router.push(`/admin/analytics/compare?${params.toString()}`, { scroll: false }),
     );
   };
 

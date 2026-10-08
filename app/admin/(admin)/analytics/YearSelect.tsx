@@ -14,7 +14,7 @@ export function YearSelect({ year, years }: { year: number; years: number[] }) {
   return (
     <Select
       value={String(year)}
-      onValueChange={(v) => router.push(`/analytics?year=${v}`, { scroll: false })}
+      onValueChange={(v) => router.push(`/admin/analytics?year=${v}`, { scroll: false })}
     >
       <SelectTrigger className="w-[120px]">
         <SelectValue />

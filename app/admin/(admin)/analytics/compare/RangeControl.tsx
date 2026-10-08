@@ -43,7 +43,7 @@ export function RangeControl({ from, to }: { from: string; to: string }) {
     params.set("from", f);
     params.set("to", t);
     startTransition(() =>
-      router.push(`/analytics/compare?${params.toString()}`, { scroll: false }),
+      router.push(`/admin/analytics/compare?${params.toString()}`, { scroll: false }),
     );
   };
 
