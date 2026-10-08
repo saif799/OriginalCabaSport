@@ -9,11 +9,13 @@ import {
   borrower,
 } from "@/lib/schema";
 import { desc, eq, sql } from "drizzle-orm";
+import Link from "next/link";
 import { connection } from "next/server";
 import BorrowerActions from "@/components/borrowerActions";
 import BorrowerHistory from "@/components/borrowerHistory";
 import AdminPage from "@/components/admin/AdminPage";
 import type { GroupedProduct } from "@/app/admin/(admin)/page";
+import { historyHref } from "@/app/admin/(admin)/history/params";
 
 export default async function BorrowerDetailPage({
   params,
@@ -118,6 +120,24 @@ export default async function BorrowerDetailPage({
     >
       <div className="flex flex-col items-center justify-center gap-8">
         <BorrowerHistory history={history} />
+        {groupedProducts.length > 0 && (
+          // Into the stock history, narrowed to this Borrower's part in it.
+          <div className="flex w-full max-w-3xl flex-wrap items-center gap-1.5 text-sm">
+            <span className="mr-1 text-muted-foreground">Stock history:</span>
+            {groupedProducts.map((product) => (
+              <Link
+                key={product.shoeId}
+                href={historyHref({
+                  shoeIds: [product.shoeId],
+                  borrowerId: lenderId,
+                })}
+                className="rounded-full border px-2.5 py-0.5 text-xs hover:bg-accent"
+              >
+                {product.modelName} — {product.color}
+              </Link>
+            ))}
+          </div>
+        )}
         <Listings
           models={models}
           products={groupedProducts}

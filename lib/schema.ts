@@ -246,6 +246,65 @@ export const arrivalItems = pgTable("arrival_items", {
     .defaultNow(),
 });
 
+/**
+ * The Movement Ledger (ADR-0010): what happened to each size, and when. One
+ * row per size touched by one `applyMovement` call; `groupId` ties the rows of
+ * that call back together into the single event the owner did.
+ *
+ * Append-only, and written only by `lib/stock` (ADR-0004). It records the
+ * movement, it is never the source of a quantity: Physical Quantity stays
+ * `shoe_inventory.quantity` and Holdings stay `SUM(lended_shoes.quantity)`.
+ *
+ * `reconstructed` rows are the backfill's best reading of the side tables for
+ * everything that happened before the ledger existed. They carry no
+ * before/after — nothing recorded the stock level at the time.
+ */
+export const stockMovements = pgTable(
+  "stock_movements",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    groupId: uuid("group_id").notNull(),
+    shoeInventoryId: uuid("shoe_inventory_id")
+      .notNull()
+      .references(() => shoeInventory.id),
+    /** A `MovementReason`, or "correction". */
+    reason: varchar("reason").notNull(),
+    /** Units asked for. More than `-delta` on a sale means it oversold. */
+    requested: integer("requested").notNull(),
+    /** Signed change actually made to Physical Quantity (0 for lend/return). */
+    delta: integer("delta").notNull(),
+    /** Signed change to `borrowerId`'s Holdings (0 when no Borrower is involved). */
+    lendedDelta: integer("lended_delta").notNull().default(0),
+    quantityBefore: integer("quantity_before"),
+    quantityAfter: integer("quantity_after"),
+    // The three links are context, not ownership: deleting what they point at
+    // must not take the history of the stock with it.
+    borrowerId: uuid("borrower_id").references(() => borrower.id, {
+      onDelete: "set null",
+    }),
+    orderId: varchar("order_id").references(() => ordersTable.id, {
+      onDelete: "set null",
+    }),
+    arrivalId: uuid("arrival_id").references(() => arrivals.id, {
+      onDelete: "set null",
+    }),
+    note: varchar("note"),
+    reconstructed: boolean("reconstructed").notNull().default(false),
+    occurredAt: timestamp("occurred_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // The history page reads one colour's sizes, newest first.
+    index("stock_movements_inventory_occurred_idx").on(
+      t.shoeInventoryId,
+      t.occurredAt,
+    ),
+    index("stock_movements_group_id_idx").on(t.groupId),
+    index("stock_movements_order_id_idx").on(t.orderId),
+  ],
+);
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Delivery coverage tables — replaces communes.json, wilayas.json,
 // tarifs.json, and yalidinCommunes_withExpressDesk.json.

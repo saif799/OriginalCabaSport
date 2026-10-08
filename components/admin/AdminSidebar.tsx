@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   BarChart3,
   ExternalLink,
+  History,
   Home,
   Images,
   Layers,
@@ -52,6 +53,7 @@ const navGroups: NavGroup[] = [
       { href: "/admin/products", label: "Products", icon: ShoppingBag },
       { href: "/admin/add-shoes", label: "Add Shoes", icon: PackagePlus },
       { href: "/admin/arrivals", label: "Arrivages", icon: Truck },
+      { href: "/admin/history", label: "History", icon: History },
     ],
   },
   {

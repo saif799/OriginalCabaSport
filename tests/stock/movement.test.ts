@@ -3,10 +3,14 @@ import { and, eq } from "drizzle-orm";
 import {
   ImageNotifierTable,
   LendedShoes,
+  arrivals,
   borrower,
+  ordersTable,
   shoeInventory,
   shoeModels,
   shoes,
+  stautsGroupsTable,
+  stockMovements,
 } from "@/lib/schema";
 import { applyMovement, type MovementInput } from "@/lib/stock/movement";
 import { createTestDb, type TestDb } from "../testDb";
@@ -30,6 +34,11 @@ async function seedVariant(quantity: number) {
 async function seedBorrower() {
   const [b] = await db.insert(borrower).values({ name: "Yacine" }).returning();
   return b;
+}
+
+async function seedStatus() {
+  const [status] = await db.insert(stautsGroupsTable).values({ name: "prete a expedier" }).returning();
+  return status;
 }
 
 async function move(input: MovementInput) {
@@ -226,5 +235,185 @@ describe("applyMovement: arrival", () => {
     expect(inStockRow.quantity).toBe(6);
     expect(await notifierDirection(soldOut.id)).toEqual(["restock"]);
     expect(await notifierDirection(inStock.id)).toEqual([]);
+  });
+});
+
+describe("applyMovement: Movement Ledger", () => {
+  async function ledger() {
+    return db.select().from(stockMovements).orderBy(stockMovements.occurredAt);
+  }
+
+  it("records a sale with the stock level on either side of it", async () => {
+    const inv = await seedVariant(5);
+
+    await move({ reason: "sale", items: [{ inventoryId: inv.id, quantity: 2 }] });
+
+    expect(await ledger()).toMatchObject([
+      {
+        shoeInventoryId: inv.id,
+        reason: "sale",
+        requested: 2,
+        delta: -2,
+        lendedDelta: 0,
+        quantityBefore: 5,
+        quantityAfter: 3,
+        reconstructed: false,
+      },
+    ]);
+  });
+
+  it("records what a sale asked for beside what the floor at zero let it take", async () => {
+    const inv = await seedVariant(1);
+
+    await move({ reason: "sale", items: [{ inventoryId: inv.id, quantity: 3 }] });
+
+    expect(await ledger()).toMatchObject([
+      { requested: 3, delta: -1, quantityBefore: 1, quantityAfter: 0 },
+    ]);
+  });
+
+  it("gives every size of one movement the same event, and separate movements separate ones", async () => {
+    const a = await seedVariant(4);
+    const b = await seedVariant(4);
+
+    await move({
+      reason: "sale",
+      items: [
+        { inventoryId: a.id, quantity: 1 },
+        { inventoryId: b.id, quantity: 1 },
+      ],
+    });
+    await move({ reason: "sale", items: [{ inventoryId: a.id, quantity: 1 }] });
+
+    const rows = await ledger();
+    expect(rows).toHaveLength(3);
+    expect(rows[0].groupId).toBe(rows[1].groupId);
+    expect(rows[0].occurredAt).toEqual(rows[1].occurredAt);
+    expect(rows[2].groupId).not.toBe(rows[0].groupId);
+  });
+
+  it("records lending and bringing back as a change of Holdings, not of Physical Quantity", async () => {
+    const inv = await seedVariant(3);
+    const b = await seedBorrower();
+
+    await move({ reason: "lend", items: [{ inventoryId: inv.id, quantity: 2 }], borrowerId: b.id });
+    await move({ reason: "return", items: [{ inventoryId: inv.id, quantity: 1 }], borrowerId: b.id });
+
+    expect(await ledger()).toMatchObject([
+      { reason: "lend", delta: 0, lendedDelta: 2, borrowerId: b.id, quantityBefore: 3, quantityAfter: 3 },
+      { reason: "return", delta: 0, lendedDelta: -1, borrowerId: b.id, quantityBefore: 3, quantityAfter: 3 },
+    ]);
+  });
+
+  it("records a Borrower's sale against both quantities, and its retour likewise", async () => {
+    const inv = await seedVariant(3);
+    const b = await seedBorrower();
+    await move({ reason: "lend", items: [{ inventoryId: inv.id, quantity: 3 }], borrowerId: b.id });
+
+    await move({ reason: "borrower-sale", items: [{ inventoryId: inv.id, quantity: 2 }], borrowerId: b.id });
+    await move({ reason: "retour", items: [{ inventoryId: inv.id, quantity: 2 }], borrowerId: b.id });
+
+    expect((await ledger()).slice(1)).toMatchObject([
+      { reason: "borrower-sale", delta: -2, lendedDelta: -2, borrowerId: b.id },
+      { reason: "retour", delta: 2, lendedDelta: 2, borrowerId: b.id },
+    ]);
+  });
+
+  it("leaves an owner order's cancel with no Holdings change", async () => {
+    const inv = await seedVariant(3);
+    await move({ reason: "sale", items: [{ inventoryId: inv.id, quantity: 1 }] });
+
+    await move({ reason: "cancel", items: [{ inventoryId: inv.id, quantity: 1 }] });
+
+    expect((await ledger())[1]).toMatchObject({
+      reason: "cancel",
+      delta: 1,
+      lendedDelta: 0,
+      borrowerId: null,
+    });
+  });
+
+  it("links a movement to the order and the arrivage it came from", async () => {
+    const inv = await seedVariant(0);
+    const [arrival] = await db.insert(arrivals).values({ reference: "Lot 7" }).returning();
+    const status = await seedStatus();
+    await db.insert(ordersTable).values({
+      id: "DHD-1",
+      nom_client: "Amine",
+      telephone: "0555000000",
+      adresse: "-",
+      commune: "Alger",
+      code_wilaya: "16",
+      montant: "0",
+      type: 1,
+      stop_desk: 0,
+      statusId: status.id,
+    });
+
+    await move({
+      reason: "arrival",
+      items: [{ inventoryId: inv.id, quantity: 6 }],
+      arrivalId: arrival.id,
+    });
+    await move({
+      reason: "sale",
+      items: [{ inventoryId: inv.id, quantity: 1 }],
+      orderId: "DHD-1",
+    });
+
+    expect(await ledger()).toMatchObject([
+      { reason: "arrival", delta: 6, arrivalId: arrival.id, orderId: null },
+      { reason: "sale", delta: -1, arrivalId: null, orderId: "DHD-1" },
+    ]);
+  });
+
+  it("records a correction as the difference it made, with the owner's note", async () => {
+    const inv = await seedVariant(5);
+
+    await move({
+      reason: "correction",
+      items: [{ inventoryId: inv.id, newQuantity: 2 }],
+      note: "  counted the shelf  ",
+    });
+
+    expect(await ledger()).toMatchObject([
+      {
+        reason: "correction",
+        delta: -3,
+        quantityBefore: 5,
+        quantityAfter: 2,
+        note: "counted the shelf",
+      },
+    ]);
+  });
+
+  it("records nothing for a correction that changes nothing, unless it carries a note", async () => {
+    const inv = await seedVariant(5);
+
+    await move({ reason: "correction", items: [{ inventoryId: inv.id, newQuantity: 5 }] });
+    expect(await ledger()).toEqual([]);
+
+    await move({
+      reason: "correction",
+      items: [{ inventoryId: inv.id, newQuantity: 5 }],
+      note: "recounted, still 5",
+    });
+    expect(await ledger()).toMatchObject([{ delta: 0, note: "recounted, still 5" }]);
+  });
+
+  it("records a size created by its arrivage without flagging the gallery", async () => {
+    const inv = await seedVariant(0);
+
+    await move({
+      reason: "arrival",
+      items: [{ inventoryId: inv.id, quantity: 4, created: true }],
+    });
+
+    const [row] = await db.select().from(shoeInventory).where(eq(shoeInventory.id, inv.id));
+    expect(row.quantity).toBe(4);
+    expect(await ledger()).toMatchObject([
+      { reason: "arrival", delta: 4, quantityBefore: 0, quantityAfter: 4 },
+    ]);
+    expect(await notifierDirection(inv.id)).toEqual([]);
   });
 });

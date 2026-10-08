@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useState } from "react";
+import Link from "next/link";
 import { ChevronDown, ChevronRight } from "lucide-react";
 
 import {
@@ -12,6 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { historyHref } from "@/app/admin/(admin)/history/params";
 
 export type ArrivalSummary = {
   id: string;
@@ -152,14 +154,19 @@ export function ArrivalsList({ arrivals }: { arrivals: ArrivalSummary[] }) {
                                 <TableRow key={item.id}>
                                   <TableCell>
                                     <div className="flex items-center gap-2">
-                                      <div className="min-w-0">
+                                      {/* Into the stock history, with this colour picked. */}
+                                      <Link
+                                        href={historyHref({ shoeIds: [item.shoeId] })}
+                                        className="min-w-0 hover:underline"
+                                        title="See this shoe's stock history"
+                                      >
                                         <div className="font-medium truncate">
                                           {item.modelName}
                                         </div>
                                         <div className="text-xs text-muted-foreground truncate">
                                           {item.color}
                                         </div>
-                                      </div>
+                                      </Link>
                                     </div>
                                   </TableCell>
                                   <TableCell>{item.size}</TableCell>

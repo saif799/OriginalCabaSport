@@ -32,6 +32,7 @@ export default function EditInventoryDialog({
     });
     return initial;
   });
+  const [note, setNote] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
   const handleQuantityChange = (inventoryId: string, value: string) => {
@@ -46,26 +47,35 @@ export default function EditInventoryDialog({
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      const updates = sizes.map(async (size) => {
-        const newQuantity = quantities[size.inventoryId];
-        if (newQuantity !== size.quantity) {
-          const response = await fetch(`/api/inventory/${size.inventoryId}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              action: "update",
-              quantity: newQuantity,
-            }),
-          });
-          if (!response.ok) {
-            throw new Error(`Failed to update ${size.size}`);
-          }
-          return response.json();
-        }
-      });
+      const changed = sizes.filter(
+        (size) => quantities[size.inventoryId] !== size.quantity,
+      );
+      const trimmedNote = note.trim();
+      // A note with nothing changed is still worth keeping — "recounted, all
+      // correct" — so it is recorded against every size of the colour.
+      const corrected = changed.length > 0 ? changed : trimmedNote ? sizes : [];
 
-      await Promise.all(updates);
+      if (corrected.length > 0) {
+        // One request, so the stock history shows one correction with one
+        // note rather than a row per size, and the sizes save or fail together.
+        const response = await fetch("/api/inventory", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            items: corrected.map((size) => ({
+              inventoryId: size.inventoryId,
+              quantity: quantities[size.inventoryId],
+            })),
+            note: trimmedNote || undefined,
+          }),
+        });
+        if (!response.ok) {
+          throw new Error("Failed to update quantities");
+        }
+      }
+
       toast.success("Quantities updated successfully");
+      setNote("");
       setIsEditInventoryOpen(false);
       router.refresh(); // Refresh the page data without full reload
     } catch (error) {
@@ -83,6 +93,7 @@ export default function EditInventoryDialog({
       original[s.inventoryId] = s.quantity;
     });
     setQuantities(original);
+    setNote("");
     setIsEditInventoryOpen(false);
   };
 
@@ -122,6 +133,19 @@ export default function EditInventoryDialog({
             </div>
           </div>
         ))}
+        <div className="space-y-1.5">
+          <Label htmlFor="correction-note" className="font-medium">
+            Note <span className="font-normal text-muted-foreground">(optional)</span>
+          </Label>
+          <Input
+            id="correction-note"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Why the count changed — shown in the stock history"
+            maxLength={200}
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
         <div className="flex justify-end gap-2 mt-6">
           <Button variant="outline" onClick={handleCancel} disabled={isSaving}>
             Cancel

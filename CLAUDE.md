@@ -23,9 +23,10 @@ npx tsx lib/seed/seedDeliveryData.ts   # one-shot seed of delivery coverage tabl
 npx tsx lib/scripts/fixR2ImageUrls.ts   # dry-run rewrite of shoe_images.url onto R2_PUBLIC_URL (--apply to write)
 npx tsx lib/scripts/generateBrandImages.ts      # re-cuts the share cards and site icons; commit the output
 npx tsx lib/scripts/capiSmoke.ts        # sends one test Purchase through lib/storefront/capi to Meta's Test events
+npx tsx lib/scripts/backfillStockMovements.ts   # dry-run rebuild of the Movement Ledger's past (--apply to write; re-runnable)
 ```
 
-Tests are Vitest (`pnpm test` -> `vitest run`), living in `tests/` against a PGlite test DB ([tests/testDb.ts](tests/testDb.ts)). Coverage is partial: `placeOrder`, `lib/stock/movement`, storefront products, and a smoke test.
+Tests are Vitest (`pnpm test` -> `vitest run`), living in `tests/` against a PGlite test DB ([tests/testDb.ts](tests/testDb.ts)). Coverage is partial: `placeOrder`, `lib/stock` (movement, history, backfill), storefront products, and a smoke test.
 
 **Gotcha:** `next.config.mjs` sets `typescript.ignoreBuildErrors` — a green `pnpm build` proves nothing about types. Run `npx tsc --noEmit` after changes.
 
@@ -40,7 +41,7 @@ Next.js 16 App Router + React 19, Tailwind v4, shadcn/ui (new-york, `components/
 Decided in [docs/adr/0001-storefront-routing-and-pricing-model.md](docs/adr/0001-storefront-routing-and-pricing-model.md):
 
 - **`app/(storefront)/`** — public customer store at `/`. Catalog, product page, Collection page, checkout, order confirmation. Checkout is restricted to the DHD provider and creates orders with the ready-to-ship `statusId` (whose row is named `prete a expedier` — with spaces; the underscored form is a courier `external_statuses` value, not the internal name). Storefront-only helpers live in `lib/storefront/` and `components/storefront/`.
-- **`app/admin/(admin)/`** — internal inventory dashboard under `/admin/*` (products, add-shoes, arrivals, orders, analytics, gallery, borrowers, rebalance, settings, `borrowers/[lenderId]` borrower detail). The route list lives in [components/admin/AdminSidebar.tsx](components/admin/AdminSidebar.tsx), and every page renders through the shared shell in [components/admin/AdminPage.tsx](components/admin/AdminPage.tsx).
+- **`app/admin/(admin)/`** — internal inventory dashboard under `/admin/*` (products, add-shoes, arrivals, history, orders, analytics, gallery, borrowers, rebalance, settings, `borrowers/[lenderId]` borrower detail). The route list lives in [components/admin/AdminSidebar.tsx](components/admin/AdminSidebar.tsx), and every page renders through the shared shell in [components/admin/AdminPage.tsx](components/admin/AdminPage.tsx).
 - **`app/api/`** — REST routes used by client components of both apps. Admin-only mutations (product/model edits, image management, the Collections CMS) are namespaced under `app/api/admin/`; everything else is shared.
 - [proxy.ts](proxy.ts) (Next 16's renamed `middleware.ts`) does two jobs: it gates the admin surface, then routes storefront locales. It tags storefront requests with the locale header the root layout reads for `lang`/`dir`; `/admin` is left untagged and stays `lang="en"` LTR.
 
@@ -76,6 +77,7 @@ Any write that touches stock **and** another table (order rows, lend rows, notif
 - **`status_groups_table`** — maps our internal status names to arrays of `external_statuses` strings returned by providers. Status ids are resolved from names (and back) through [lib/orders/status.ts](lib/orders/status.ts), the single place they're defined; `ordersTable.statusId` still carries a hardcoded default. The legacy `ordersTable.status` varchar column that used to duplicate `statusId` has been dropped (issue #9).
 - **`borrower` / `LendedShoes`** — an append-only signed ledger, not a balance. Lending inserts `+n`, returning inserts a row, and a borrower-placed order inserts `-1`. Holdings are always `SUM(quantity)`. Owner↔borrower rebalancing is computed live in `GET /api/rebalance` — there is no stored table.
 - **`arrivals` / `arrivalItems`** — an "arrivage" (received shipment). `arrivalItems.quantity` is an immutable snapshot of what arrived, deliberately not kept in sync with live `shoeInventory.quantity`.
+- **`stock_movements`** — the Movement Ledger ([ADR-0010](docs/adr/0010-stock-movements-are-recorded-in-a-ledger.md)): one row per size per `applyMovement` call, `groupId` tying a call's rows into one event. It records, it never decides — no quantity is read from it. `reconstructed` rows are the backfill's reading of the past and carry no before/after. Read it through [lib/stock/history.ts](lib/stock/history.ts) (`getMovementHistory`, `getHistorySummary`), which is what `/admin/history` renders; the nine reasons group into Event Families in [lib/stock/eventFamily.ts](lib/stock/eventFamily.ts).
 - **`shoeImages`** — R2 gallery per color variant; `isPrimary` is the catalog thumbnail, `sortOrder` the carousel order.
 - **`storefrontCollections` / `storefrontCollectionItems`** — the Collections CMS ([ADR-0006](docs/adr/0006-collections-replace-homepage-rails.md)): a hand-picked, ordered set of colour variants with an image, a `slug` and a page at `/[lng]/collection/<slug>`. The homepage is the grid of them and shows no products of its own. Read them through [lib/storefront/collections.ts](lib/storefront/collections.ts) — `getVisibleCollections()` for the grid, `getCollectionBySlug()` for the page. `imageUrl` is always derived server-side from `imageKey` (the R2 object key), the same rule as `shoeImages`. Three separate not-showing states, deliberately not one flag: *Incomplete* (no image) never renders, *Hidden* (`isVisible = false`) 404s its route, *Empty* (no live pick) drops off the grid but keeps serving its URL.
 - **`ImageNotifierTable`** — a work queue for "add/remove this variant's photo from the Instagram gallery", consumed by `/admin/gallery` (the route was called `/admin/notifier` until issue #15; the API is still `/api/notifier/*`).
@@ -83,11 +85,12 @@ Any write that touches stock **and** another table (order rows, lend rows, notif
 
 ### Stock invariants
 
-[lib/stock/movement.ts](lib/stock/movement.ts) exports `applyMovement`, the single entry point for every Stock Movement — no route, server action, or script writes `shoeInventory.quantity`, `LendedShoes`, or `ImageNotifierTable` directly (see [ADR-0004](docs/adr/0004-all-stock-movement-goes-through-lib-stock.md)). It takes a discriminated union keyed on `reason` (`sale`, `borrower-sale`, `cancel`, `retour`, `echange-return`, `arrival`, `lend`, `return`, `correction`) and an optional `exec` to enlist in a caller's transaction.
+[lib/stock/movement.ts](lib/stock/movement.ts) exports `applyMovement`, the single entry point for every Stock Movement — no route, server action, or script writes `shoeInventory.quantity`, `LendedShoes`, `ImageNotifierTable`, or `stock_movements` directly (see [ADR-0004](docs/adr/0004-all-stock-movement-goes-through-lib-stock.md)). Every call also writes its Movement Ledger rows in the same transaction (ADR-0010). It takes a discriminated union keyed on `reason` (`sale`, `borrower-sale`, `cancel`, `retour`, `echange-return`, `arrival`, `lend`, `return`, `correction`) and an optional `exec` to enlist in a caller's transaction.
 
 1. Selling decrements **one unit per distinct `shoeInventory.id`**, floored at zero; cancel/retour adds it back exactly.
 2. A borrower-placed order also inserts a `-1` `LendedShoes` row (and `+1` on cancel/retour), so the borrower's holdings drop while the owner's store count is untouched. `lend`/`return` move `LendedShoes` only — they never touch `shoeInventory.quantity` (a Borrower is a Storage Location, not a sale — see [ADR-0003](docs/adr/0003-borrower-ledger-is-a-location-ledger.md)).
 3. The gallery notifier (folded into the same module) fires **only when Physical Quantity (`shoeInventory.quantity`) crosses the zero boundary** — `"remove"` when stock just hit 0, `"restock"` when it was 0 before the increment. Never key a gallery decision off Store-Held Stock (`lib/stock/availability.ts`); that governs lending, not sellability.
+4. A size an arrivage creates is inserted at zero and filled by the same `arrival` movement, marked `created`: it gets its ledger row and **no** gallery flag.
 
 ### Delivery providers
 

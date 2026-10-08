@@ -83,6 +83,18 @@ The units of one size-variant currently at one Borrower's location, computed liv
 ### Stock Movement
 Any change to Physical Quantity or Storage Location, always carrying a reason (`sale`, `borrower-sale`, `cancel`, `retour`, `echange-return`, `arrival`, `lend`, `return`, or `correction`). `echange-return` is an Échange's Returned Pair coming back once the swap is confirmed — the same effect as `retour`, attributed to the Échange rather than to the order that sold the pair. The single owner of every Stock Movement is `applyMovement` in `lib/stock/movement.ts` — see ADR-0004.
 
+### Movement Ledger (`stock_movements`)
+The record of every Stock Movement: one row per size touched, written by `applyMovement` in the same transaction as the movement itself. The rows of one movement share a group, and that group is the **event** the owner did — one arrivage, one order, one lend. It keeps what was asked for beside what actually happened, and the Physical Quantity on either side.
+
+The ledger **records, it never decides**: no quantity is read from it. Physical Quantity and Holdings stay where they were (see ADR-0010).
+_Avoid_: audit log (it is about pairs, not about who clicked what), stock log.
+
+### Reconstructed Movement
+A Movement Ledger row for something that happened before the ledger existed, rebuilt by the one-shot backfill from arrivages, orders, store sales, decided Échanges and the Borrower ledger. It has no stock level, and its day may be all that is known of when. A past order that came back has a Reconstructed sale and **no** reversal — nothing dated it — so its order's current status is what says the pairs returned.
+
+### Event Family
+How the stock history groups the nine movement reasons for a reader, by what happened to the pairs: **Arrived** (`arrival`), **Sold** (`sale`, `borrower-sale`), **Came back** (`cancel`, `retour`, `echange-return`), **Lent** (`lend`), **Back from borrower** (`return`), **Correction**. One family is one colour on `/admin/history` and one chip in its filter. "Sold" is gross: a pair sold and returned counts once in Sold and once in Came back.
+
 ### Échange
 An order (`type = 2`) that sends a customer a replacement for a pair they already received, and collects that pair in the same courier visit. Every Échange is started from, and linked to, exactly one Original Order, and returns some or all of its pairs — each pair of an Original Order can be exchanged at most once (to swap again, start from the Échange). Only DHD carries Échanges.
 

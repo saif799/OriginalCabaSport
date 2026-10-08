@@ -104,13 +104,19 @@ export async function POST(request: Request) {
       string,
       { basePrice?: number; compareAtPrice?: number | null }
     >();
+    // New sizes are inserted empty and then filled by the same arrival
+    // movement as everything else, so the Movement Ledger records them.
     const inventoryInserts: {
       id: string;
       shoeId: string;
       size: string;
-      quantity: number;
+      quantity: 0;
     }[] = [];
-    const inventoryIncrements: { id: string; add: number }[] = [];
+    const movementItems: {
+      inventoryId: string;
+      quantity: number;
+      created?: true;
+    }[] = [];
     const itemInserts: {
       shoeInventoryId: string;
       quantity: number;
@@ -148,7 +154,8 @@ export async function POST(request: Request) {
         }
         for (const size of sizes) {
           const invId = crypto.randomUUID();
-          inventoryInserts.push({ id: invId, shoeId, size, quantity });
+          inventoryInserts.push({ id: invId, shoeId, size, quantity: 0 });
+          movementItems.push({ inventoryId: invId, quantity, created: true });
           itemInserts.push({ shoeInventoryId: invId, quantity });
         }
       } else {
@@ -178,7 +185,7 @@ export async function POST(request: Request) {
         for (const size of sizes) {
           const match = bySize.get(size);
           if (match) {
-            inventoryIncrements.push({ id: match.id, add: quantity });
+            movementItems.push({ inventoryId: match.id, quantity });
             itemInserts.push({ shoeInventoryId: match.id, quantity });
           } else {
             const invId = crypto.randomUUID();
@@ -186,8 +193,9 @@ export async function POST(request: Request) {
               id: invId,
               shoeId: line.shoeId,
               size,
-              quantity,
+              quantity: 0,
             });
+            movementItems.push({ inventoryId: invId, quantity, created: true });
             itemInserts.push({ shoeInventoryId: invId, quantity });
           }
         }
@@ -220,9 +228,10 @@ export async function POST(request: Request) {
 
     // Order matters: parents (arrival, shoes, inventory) before children
     // (arrival_items). All ids are pre-generated so children can reference
-    // freshly-inserted rows inside the same transaction. Existing-variant
-    // increments go through applyMovement so the restock notifier flag lands
-    // in the same transaction as the stock change.
+    // freshly-inserted rows inside the same transaction. Every pair goes in
+    // through applyMovement, so the ledger row and the restock notifier flag
+    // land in the same transaction as the stock change. A size this arrivage
+    // created is marked `created`: recorded, but never flagged as a restock.
     await txClient().transaction(async (tx) => {
       await tx.insert(arrivals).values({ id: arrivalId, reference, note });
 
@@ -235,18 +244,10 @@ export async function POST(request: Request) {
       if (inventoryInserts.length)
         await tx.insert(shoeInventory).values(inventoryInserts);
 
-      if (inventoryIncrements.length) {
-        await applyMovement(
-          {
-            reason: "arrival",
-            items: inventoryIncrements.map((inc) => ({
-              inventoryId: inc.id,
-              quantity: inc.add,
-            })),
-          },
-          tx,
-        );
-      }
+      await applyMovement(
+        { reason: "arrival", arrivalId, items: movementItems },
+        tx,
+      );
 
       await tx.insert(arrivalItems).values(itemInserts.map((it) => ({ ...it, arrivalId })));
     });

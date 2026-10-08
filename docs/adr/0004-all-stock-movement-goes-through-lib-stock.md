@@ -23,3 +23,4 @@ Route-local writes were faster to add in the moment — a route could mutate exa
 - A new feature that moves stock adds a `MovementReason` (or reuses an existing one) rather than writing to `shoeInventory`/`lended_shoes`/`image_notifier_table` inline.
 - The dead bulk inventory-creation endpoint, the size-deletion endpoint, and the single-unit decrement branch of the inventory update endpoint were removed rather than left as unreachable ways to bypass the module.
 - Reviewers can grep for direct writes to the three tables outside `lib/stock/` as a correctness check; a match is a bug by construction.
+- Since ADR-0010 there is a fourth: `stock_movements`, the Movement Ledger. `applyMovement` writes its live rows in the same transaction as the movement; `lib/stock/backfill.ts` writes its reconstructed ones. Nothing outside `lib/stock/` writes it.
