@@ -36,6 +36,17 @@ export const CANCELED_STATUS_ID = "e01a36c1-087c-46ab-aa4c-12b1a5186bf1"; // "Ca
 // synchronously while rendering the table.
 export const EN_LIVRAISON_STATUS_ID = "6a066908-9417-4182-9367-cd0eac49dd62";
 
+/**
+ * An order on one of these has resolved: delivered, returned (its pairs are
+ * already back in stock) or cancelled before it reached a courier. Every other
+ * status is in flight.
+ */
+export const RESOLVED_STATUS_IDS: readonly string[] = [
+  DELIVERED_STATUS_ID,
+  RETURNED_STATUS_ID,
+  CANCELED_STATUS_ID,
+];
+
 export type StatusGroupRow = {
   id: string;
   name: string;

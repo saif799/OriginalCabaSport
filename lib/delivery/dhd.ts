@@ -5,9 +5,16 @@ import type {
   DeliveryProvider,
   NormalizedOrderInput,
   ProviderStatus,
+  SyncTargets,
 } from "./types";
+import { fetchDhdTrackingStatuses } from "./dhdTrackings";
 
 const BASE_URL = "https://platform.dhd-dz.com/api/v1";
+
+// Bounds the get/orders walk so a bad `next_page_url` cannot spin the cron. At
+// 40 a page this is 2,000 active parcels; anything past it that is ours and
+// in flight is still caught by the trackings/info lookup.
+const MAX_LISTING_PAGES = 50;
 
 function authHeader() {
   return `Bearer ${process.env.NEXT_PUBLIC_DHD_API_KEY}`;
@@ -72,11 +79,35 @@ export const dhdProvider: DeliveryProvider = {
     return { ok: apiResponse?.delete === "success" };
   },
 
-  // DHD returns every order in one call, so the per-provider `trackings` hint
-  // (used by Yalidine) is intentionally ignored here.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  async fetchStatuses(_trackings?: string[]): Promise<ProviderStatus[]> {
-    const res = await fetch(`${BASE_URL}/get/orders`, {
+  async fetchStatuses({ inFlight }: SyncTargets): Promise<ProviderStatus[]> {
+    // Keyed by tracking: a parcel can straddle two pages if one is created
+    // mid-walk, and the route must see exactly one status per order per sync
+    // (two would race the retour claim against a later overwrite).
+    const statuses = new Map<string, string>();
+    for (const o of await fetchListedOrders()) statuses.set(o.tracking, o.status);
+
+    // get/orders only lists parcels DHD still considers active: once one
+    // settles it drops off, and a transition that lands after our last sync is
+    // never seen. Ask for our in-flight orders it no longer carries directly.
+    const unlisted = inFlight.filter((t) => !statuses.has(t));
+    try {
+      for (const o of await fetchDhdTrackingStatuses(unlisted)) {
+        statuses.set(o.tracking, o.status);
+      }
+    } catch (e) {
+      // The listing is still worth applying on its own.
+      console.log("DHD trackings/info lookup failed", e);
+    }
+
+    return Array.from(statuses, ([tracking, status]) => ({ tracking, status }));
+  },
+};
+
+/** Every parcel get/orders lists, following its Laravel pagination (40 a page). */
+async function fetchListedOrders(): Promise<DeliveryOrderType[]> {
+  const orders: DeliveryOrderType[] = [];
+  for (let page = 1; page <= MAX_LISTING_PAGES; page++) {
+    const res = await fetch(`${BASE_URL}/get/orders?page=${page}`, {
       method: "GET",
       headers: {
         "Content-Type": "application/json",
@@ -85,10 +116,14 @@ export const dhdProvider: DeliveryProvider = {
     });
 
     if (!res.ok) {
-      throw new Error("Failed to fetch orders from DHD");
+      throw new Error(`Failed to fetch orders from DHD (page ${page})`);
     }
 
-    const data: { data: Array<DeliveryOrderType> } = await res.json();
-    return data.data.map((o) => ({ tracking: o.tracking, status: o.status }));
-  },
-};
+    const data: { data: DeliveryOrderType[]; next_page_url: string | null } =
+      await res.json();
+    orders.push(...data.data);
+    if (!data.next_page_url || data.data.length === 0) return orders;
+  }
+  console.log(`DHD get/orders still paginating after ${MAX_LISTING_PAGES} pages`);
+  return orders;
+}

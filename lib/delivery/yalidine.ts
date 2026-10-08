@@ -12,6 +12,7 @@ import type {
   DeliveryProvider,
   NormalizedOrderInput,
   ProviderStatus,
+  SyncTargets,
 } from "./types";
 
 type YalidineCommune = {
@@ -134,9 +135,9 @@ export const yalidineProvider: DeliveryProvider = {
     return { ok: entry?.deleted === true };
   },
 
-  async fetchStatuses(trackings?: string[]): Promise<ProviderStatus[]> {
+  async fetchStatuses({ all }: SyncTargets): Promise<ProviderStatus[]> {
     // No Yalidine orders to sync -> skip the API call entirely.
-    if (!trackings || trackings.length === 0) return [];
-    return fetchYalidineLatestStatuses(trackings);
+    if (all.length === 0) return [];
+    return fetchYalidineLatestStatuses(all);
   },
 };

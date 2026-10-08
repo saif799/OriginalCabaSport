@@ -2,8 +2,12 @@ import { db, txClient } from "@/lib/db";
 import { ordersTable, orderItems } from "@/lib/schema";
 import { applyMovement } from "@/lib/stock/movement";
 import { revalidateStockPaths } from "@/lib/stock/revalidate";
-import { getAllStatusGroups, buildNameToIdMap } from "@/lib/orders/status";
-import { DELIVERY_PROVIDERS } from "@/lib/delivery";
+import {
+  getAllStatusGroups,
+  buildNameToIdMap,
+  RESOLVED_STATUS_IDS,
+} from "@/lib/orders/status";
+import { DELIVERY_PROVIDERS, type SyncTargets } from "@/lib/delivery";
 import { and, eq, inArray, ne } from "drizzle-orm";
 import { ECHANGE_TYPE } from "@/lib/orders/orderType";
 import {
@@ -30,14 +34,27 @@ export async function GET(request: Request) {
 
   try {
     // Group our order ids by provider so each provider syncs only its own
-    // parcels (Yalidine filters its histories query by these; DHD ignores them).
-    const orderProviders = await db
-      .select({ id: ordersTable.id, provider: ordersTable.provider })
+    // parcels. Undecided Échanges count as in flight: resolveEchanges can only
+    // decide one once its Return Leg has been seen returning, even if that
+    // happens after get/orders has dropped it.
+    const orders = await db
+      .select({
+        id: ordersTable.id,
+        provider: ordersTable.provider,
+        statusId: ordersTable.statusId,
+      })
       .from(ordersTable);
 
-    const trackingsByProvider: Record<string, string[]> = {};
-    for (const o of orderProviders) {
-      (trackingsByProvider[o.provider ?? "dhd"] ??= []).push(o.id);
+    const targetsByProvider: Record<string, SyncTargets> = {};
+    for (const o of orders) {
+      const targets = (targetsByProvider[o.provider ?? "dhd"] ??= {
+        all: [],
+        inFlight: [],
+      });
+      targets.all.push(o.id);
+      if (!RESOLVED_STATUS_IDS.includes(o.statusId)) {
+        targets.inFlight.push(o.id);
+      }
     }
 
     // Pull parcels + statuses from every provider. A provider failing (or having
@@ -45,10 +62,12 @@ export async function GET(request: Request) {
     const providerStatuses = (
       await Promise.all(
         DELIVERY_PROVIDERS.map((p) =>
-          p.fetchStatuses(trackingsByProvider[p.name] ?? []).catch((e) => {
-            console.log(`${p.name} status sync failed`, e);
-            return [];
-          }),
+          p
+            .fetchStatuses(targetsByProvider[p.name] ?? { all: [], inFlight: [] })
+            .catch((e) => {
+              console.log(`${p.name} status sync failed`, e);
+              return [];
+            }),
         ),
       )
     ).flat();
@@ -58,27 +77,37 @@ export async function GET(request: Request) {
 
     // group the (provider) parcels by our internal status name
     const groupedStatuses: Record<string, Array<string>> = {};
+    // A courier label missing from external_statuses leaves its order where it
+    // is, every sync, without a trace — so name them.
+    const unmapped = new Set<string>();
 
     providerStatuses.forEach((order) => {
       const originalstatus = dbStatuses.find((s) =>
         s.external_statuses.includes(order.status),
       );
-      if (!originalstatus) return;
+      if (!originalstatus) {
+        unmapped.add(order.status);
+        return;
+      }
       if (!groupedStatuses[originalstatus.name]) {
         groupedStatuses[originalstatus.name] = [];
       }
       groupedStatuses[originalstatus.name].push(order.tracking);
     });
+    if (unmapped.size > 0) {
+      console.log("statuses not in status_groups_table:", [...unmapped]);
+    }
 
     // Only orders we created (id exists) AND whose status wasn't already set to
     // retour. Manually-added dashboard parcels never match a row here.
+    const retourId = statusNameToId["retour"];
     const ordersToReturn = await db
       .select({ orderId: ordersTable.id, borrowerId: ordersTable.borrowerId })
       .from(ordersTable)
       .where(
         and(
           inArray(ordersTable.id, groupedStatuses["retour"] || []),
-          ne(ordersTable.statusId, statusNameToId["retour"]),
+          ne(ordersTable.statusId, retourId),
           // An Échange's own tracking goes to a return status when the swap
           // happens, so a return there says nothing about its Outgoing Pairs.
           // resolveEchanges decides it below (ADR-0009).
@@ -86,6 +115,7 @@ export async function GET(request: Request) {
         ),
       );
 
+    let returnedCount = 0;
     if (ordersToReturn.length > 0) {
       const itemsToReturn = await db
         .select({
@@ -103,6 +133,25 @@ export async function GET(request: Request) {
 
       await txClient().transaction(async (tx) => {
         for (const order of ordersToReturn) {
+          // Flip the status in the same transaction as the movement, and only
+          // if this sync is the one flipping it. The read above is outside any
+          // transaction: on its own it lets a second sync running alongside
+          // (the cron and the admin button) re-apply the movement, and so does
+          // a later status write failing after this commits — the order would
+          // still read as not returned next time.
+          const claimed = await tx
+            .update(ordersTable)
+            .set({ statusId: retourId })
+            .where(
+              and(
+                eq(ordersTable.id, order.orderId),
+                ne(ordersTable.statusId, retourId),
+              ),
+            )
+            .returning({ id: ordersTable.id });
+          if (claimed.length === 0) continue;
+          returnedCount++;
+
           const items = itemsToReturn
             .filter((it) => it.orderId === order.orderId)
             .map((it) => ({ inventoryId: it.shoeInventoryId, quantity: it.quantity }));
@@ -154,7 +203,7 @@ export async function GET(request: Request) {
       {
         groupedStatuses,
         echanges,
-        updatedCount: updated.flat().length + echangesDecided,
+        updatedCount: updated.flat().length + returnedCount + echangesDecided,
       },
       { status: 200 },
     );

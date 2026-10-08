@@ -26,14 +26,25 @@ export type CreateOrderResult = { tracking: string };
 export type DeleteOrderResult = { ok: boolean };
 export type ProviderStatus = { tracking: string; status: string };
 
+/** Our own order ids for one provider, as handed to `fetchStatuses`. */
+export type SyncTargets = {
+  /** Every order we hold for this provider. Yalidine filters its histories query by these. */
+  all: string[];
+  /**
+   * The subset still in flight — not delivered, returned or cancelled. DHD's
+   * bulk listing drops parcels once they settle, so DHD looks these up one by
+   * one when the listing no longer carries them.
+   */
+  inFlight: string[];
+};
+
 export interface DeliveryProvider {
   name: DeliveryProviderName;
   createOrder(input: NormalizedOrderInput): Promise<CreateOrderResult>;
   deleteOrder(tracking: string): Promise<DeleteOrderResult>;
   /**
-   * The current status of our parcels, for sync. `trackings` is the set of our
-   * own order ids for this provider: Yalidine filters its histories query by
-   * them; DHD ignores the arg and returns every order it holds.
+   * The current status of our parcels, for sync. May also return parcels that
+   * are not ours (DHD lists everything on the account); the caller ignores those.
    */
-  fetchStatuses(trackings?: string[]): Promise<ProviderStatus[]>;
+  fetchStatuses(targets: SyncTargets): Promise<ProviderStatus[]>;
 }
