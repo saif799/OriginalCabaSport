@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
  * `max-w-3xl px-4 py-8`, `max-w-6xl p-4 md:p-8`), so headings, gutters and
  * measure drifted page to page. Those collapse into three deliberate widths:
  *
- *   narrow   forms and short lists — add-shoes, borrowers, rebalance
+ *   narrow   forms and short lists — borrowers, rebalance
  *   default  everything else
  *   wide     full-bleed grids and data tables — home, orders, borrower detail
  *

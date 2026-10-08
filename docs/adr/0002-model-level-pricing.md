@@ -26,3 +26,6 @@ admin.
 - Pricing a model once prices every colour that has no override; correcting a single colour or size no longer requires touching every other variant.
 - Every historical price was lost; the admin was rebuilt (`/admin/products`) to make re-pricing fast and to make the previously URL-only edit page discoverable.
 - Every read/write path that touched `shoes.basePrice`/`shoes.compareAtPrice` needed updating: `app/api/products/route.ts`, `app/api/products/[shoeId]/route.ts`, `app/api/admin/products/[shoeId]/route.ts` (now writes overrides), the new `app/api/admin/models/[modelId]/route.ts` (writes the model price), `app/api/arrivals/route.ts` (writes the model price for newly-created colours), and `components/AddShoeForm.tsx`.
+
+## Note (issue #21)
+`app/api/arrivals/route.ts` no longer writes the model price: an arrivage never touches `shoe_models.base_price` / `compare_at_price`. A price is set when the model is created (`POST /api/models`, optional) or in `/admin/products`. The resolution chain above is unchanged.
