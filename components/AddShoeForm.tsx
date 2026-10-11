@@ -80,7 +80,9 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 function quantitiesOf(line: CartLine | undefined): Record<string, string> {
   if (!line) return {};
-  return Object.fromEntries(line.sizes.map((s) => [s.size, String(s.quantity)]));
+  return Object.fromEntries(
+    line.sizes.map((s) => [s.size, String(s.quantity)]),
+  );
 }
 
 function toQuantity(raw: string | undefined): number {
@@ -144,7 +146,9 @@ export default function AddShoeForm() {
   const fetchColours = useCallback(async (modelId: string) => {
     coloursRequest.current = modelId;
     try {
-      const res = await fetch(`/api/shoes?modelId=${encodeURIComponent(modelId)}`);
+      const res = await fetch(
+        `/api/shoes?modelId=${encodeURIComponent(modelId)}`,
+      );
       if (!res.ok) throw new Error(String(res.status));
       const list: ModelColour[] = await res.json();
       if (coloursRequest.current === modelId) {
@@ -195,13 +199,16 @@ export default function AddShoeForm() {
   }, [draftRestored, cart, reference, note]);
 
   const colours = useMemo(
-    () => (model && loadedColours?.modelId === model.id ? loadedColours.list : []),
+    () =>
+      model && loadedColours?.modelId === model.id ? loadedColours.list : [],
     [model, loadedColours],
   );
   const coloursLoading = !!model && loadedColours?.modelId !== model.id;
 
   const pickedColour =
-    pick?.kind === "existing" ? colours.find((c) => c.id === pick.shoeId) : undefined;
+    pick?.kind === "existing"
+      ? colours.find((c) => c.id === pick.shoeId)
+      : undefined;
   const pickedName =
     pick?.kind === "new" ? pick.color : (pickedColour?.color ?? "");
   const lineKey = model && pick ? lineKeyFor(model.id, pick) : null;
@@ -235,7 +242,9 @@ export default function AddShoeForm() {
   const visibleStaged = exactFirst(
     stagedNewColours.filter((l) => matches(l.color)),
   );
-  const stagedLeads = visibleStaged.some((l) => colorKey(l.color) === searchKey);
+  const stagedLeads = visibleStaged.some(
+    (l) => colorKey(l.color) === searchKey,
+  );
   // Offered only when the name is not already a colour of this model, in the
   // table or in this arrivage: typing an existing name selects that colour.
   const offerNew =
@@ -532,7 +541,8 @@ export default function AddShoeForm() {
     setError("");
   };
 
-  const priceEmpty = newModel.basePrice.trim() === "" || Number(newModel.basePrice) === 0;
+  const priceEmpty =
+    newModel.basePrice.trim() === "" || Number(newModel.basePrice) === 0;
 
   const stagedItems = visibleStaged.map((l) => (
     <CommandItem
@@ -602,13 +612,17 @@ export default function AddShoeForm() {
                             keywords={[m.modelName]}
                             onSelect={() => selectModel(m)}
                           >
-                            <span className="min-w-0 truncate">{m.modelName}</span>
+                            <span className="min-w-0 truncate">
+                              {m.modelName}
+                            </span>
                             {m.archived && (
                               <span className="shrink-0 text-xs text-muted-foreground">
                                 (archived)
                               </span>
                             )}
-                            {model?.id === m.id && <Check className="ml-auto" />}
+                            {model?.id === m.id && (
+                              <Check className="ml-auto" />
+                            )}
                           </CommandItem>
                         ))}
                       </CommandGroup>
@@ -651,7 +665,10 @@ export default function AddShoeForm() {
                 onKeyDown={(e) => {
                   // Enter in a field adds the model. On the buttons it must
                   // stay a click — Enter on Cancel cancels.
-                  if (e.key === "Enter" && e.target instanceof HTMLInputElement) {
+                  if (
+                    e.key === "Enter" &&
+                    e.target instanceof HTMLInputElement
+                  ) {
                     e.preventDefault();
                     handleAddModel();
                   }
@@ -679,7 +696,9 @@ export default function AddShoeForm() {
                       min={0}
                       step={1}
                       placeholder="optional"
-                      aria-describedby={priceEmpty ? "new-model-price-hint" : undefined}
+                      aria-describedby={
+                        priceEmpty ? "new-model-price-hint" : undefined
+                      }
                       value={newModel.basePrice}
                       onChange={(e) =>
                         setNewModel({ ...newModel, basePrice: e.target.value })
@@ -808,7 +827,8 @@ export default function AddShoeForm() {
                               No colours yet — type a name to add one.
                             </div>
                           )}
-                        {(visibleColours.length > 0 || visibleStaged.length > 0) && (
+                        {(visibleColours.length > 0 ||
+                          visibleStaged.length > 0) && (
                           <CommandGroup>
                             {stagedLeads && stagedItems}
                             {visibleColours.map((c) => {
@@ -820,10 +840,15 @@ export default function AddShoeForm() {
                                   key={c.id}
                                   value={existingLineKey(c.id)}
                                   onSelect={() =>
-                                    selectColour({ kind: "existing", shoeId: c.id })
+                                    selectColour({
+                                      kind: "existing",
+                                      shoeId: c.id,
+                                    })
                                   }
                                 >
-                                  <span className="min-w-0 truncate">{c.color}</span>
+                                  <span className="min-w-0 truncate">
+                                    {c.color}
+                                  </span>
                                   {c.archived && (
                                     <span className="shrink-0 text-xs text-muted-foreground">
                                       (archived)
@@ -880,7 +905,10 @@ export default function AddShoeForm() {
                 {sizes.map((size) => {
                   const stock = stockBySize.get(size);
                   return (
-                    <div key={size} className="flex w-14 flex-col items-center gap-1">
+                    <div
+                      key={size}
+                      className="flex w-14 flex-col items-center gap-1"
+                    >
                       <Label
                         htmlFor={`arrivage-size-${size}`}
                         className="text-xs tabular-nums"
@@ -889,8 +917,6 @@ export default function AddShoeForm() {
                       </Label>
                       <Input
                         id={`arrivage-size-${size}`}
-                        type="number"
-                        inputMode="numeric"
                         min={0}
                         step={1}
                         placeholder="0"
@@ -966,7 +992,12 @@ export default function AddShoeForm() {
               </p>
             </fieldset>
 
-            <Button type="submit" variant="outline" className="w-full" disabled={!pick}>
+            <Button
+              type="submit"
+              variant="outline"
+              className="w-full"
+              disabled={!pick}
+            >
               {stagedLine ? <Check /> : <Plus />}
               {stagedLine ? "Update line" : "Add to arrivage"}
             </Button>
@@ -1009,7 +1040,12 @@ export default function AddShoeForm() {
                         <span className="min-w-0 truncate">
                           {c.modelName} — {c.color}
                         </span>
-                        <Button asChild variant="outline" size="sm" className="shrink-0">
+                        <Button
+                          asChild
+                          variant="outline"
+                          size="sm"
+                          className="shrink-0"
+                        >
                           <Link href={`/admin/products/${c.shoeId}/edit`}>
                             <Camera />
                             Add photos
@@ -1038,7 +1074,8 @@ export default function AddShoeForm() {
                 <h2 className="text-lg font-semibold">Current arrivage</h2>
                 {cart.length > 0 && (
                   <span className="text-sm tabular-nums text-muted-foreground">
-                    {plural(cart.length, "colour")} · {plural(totalPairs, "pair")}
+                    {plural(cart.length, "colour")} ·{" "}
+                    {plural(totalPairs, "pair")}
                   </span>
                 )}
               </div>
@@ -1101,7 +1138,9 @@ export default function AddShoeForm() {
                   type="button"
                   variant="ghost"
                   onClick={discardDraft}
-                  disabled={saving || (cart.length === 0 && !reference && !note)}
+                  disabled={
+                    saving || (cart.length === 0 && !reference && !note)
+                  }
                 >
                   Discard
                 </Button>
