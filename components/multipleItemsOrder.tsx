@@ -50,6 +50,46 @@ import {
 // field rename there fails typecheck here instead of breaking silently.
 type OrderFormData = OrderFormFields;
 
+/** DHD `produit` / `reference` — keep under courier limits (502 when too long). */
+const PRODUIT_VARIANT_LABEL_MAX = 48;
+const PRODUIT_MAX_LENGTH = 255;
+
+function sortShoeSizes(sizes: string[]): string[] {
+  return [...sizes].sort((a, b) => {
+    const na = Number.parseFloat(a);
+    const nb = Number.parseFloat(b);
+    if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
+    return a.localeCompare(b, undefined, { numeric: true });
+  });
+}
+
+function buildMultiItemProduit(
+  selectedShoes: Array<{ shoe: GroupedProduct; selectedSize: string }>,
+  source: string,
+): string {
+  const byVariant = new Map<string, string[]>();
+  for (const { shoe, selectedSize } of selectedShoes) {
+    const key = `${shoe.modelName} ${shoe.color}`;
+    const sizes = byVariant.get(key) ?? [];
+    sizes.push(selectedSize);
+    byVariant.set(key, sizes);
+  }
+  const variantSummary = [...byVariant.entries()]
+    .map(([label, sizes]) => {
+      const displayLabel =
+        label.length > PRODUIT_VARIANT_LABEL_MAX
+          ? `${label.slice(0, PRODUIT_VARIANT_LABEL_MAX - 1)}…`
+          : label;
+      return `${displayLabel} ${sortShoeSizes(sizes).join("/")}`;
+    })
+    .join(", ");
+  let produit = `${selectedShoes.length} chassures ${variantSummary} ${source}`;
+  if (produit.length > PRODUIT_MAX_LENGTH) {
+    produit = `${produit.slice(0, PRODUIT_MAX_LENGTH - 1)}…`;
+  }
+  return produit;
+}
+
 interface ProductCardProps {
   product: GroupedProduct;
   selectedShoes?: Array<{ id: string }>;
@@ -114,10 +154,7 @@ export default function MultipleItemsOrder({
       return;
     }
     try {
-      const produit = `${selectedShoes.length} chassures ${selectedShoes.map(
-        (shoe) =>
-          shoe.shoe.modelName + " " + shoe.shoe.color + " " + shoe.selectedSize,
-      )} ${source}`;
+      const produit = buildMultiItemProduit(selectedShoes, source);
 
       const payload: OrderDraft = {
         ...formData,
