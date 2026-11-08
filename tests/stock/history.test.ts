@@ -217,6 +217,7 @@ describe("getMovementHistory", () => {
     await move({ reason: "arrival", items: [{ inventoryId: white.inv("38"), quantity: 2 }] });
     await move({ reason: "sale", items: [{ inventoryId: white.inv("38"), quantity: 1 }] });
     await move({ reason: "retour", items: [{ inventoryId: white.inv("38"), quantity: 1 }] });
+    await move({ reason: "cancel", items: [{ inventoryId: white.inv("38"), quantity: 1 }] });
 
     const { events, total } = await history({
       shoeIds: [white.shoeId],
@@ -225,6 +226,14 @@ describe("getMovementHistory", () => {
 
     expect(total).toBe(2);
     expect(events.map((e) => e.reason)).toEqual(["retour", "sale"]);
+
+    const cancelOnly = await history({
+      shoeIds: [white.shoeId],
+      families: ["cancel"],
+    });
+    expect(cancelOnly.total).toBe(1);
+    expect(cancelOnly.events[0].family).toBe("cancel");
+    expect(cancelOnly.events[0].reason).toBe("cancel");
   });
 
   it("filters by size, showing only the sizes asked for", async () => {
@@ -335,6 +344,7 @@ describe("getHistorySummary", () => {
         color: "White",
         arrived: 10,
         sold: 4,
+        cancelled: 0,
         cameBack: 1,
         atBorrowers: 1,
         inStock: 7,
@@ -346,7 +356,7 @@ describe("getHistorySummary", () => {
     const white = await seedShoe("White", ["38"], 3);
 
     expect(await summary({ shoeIds: [white.shoeId] })).toMatchObject([
-      { arrived: 0, sold: 0, cameBack: 0, atBorrowers: 0, inStock: 3 },
+      { arrived: 0, sold: 0, cancelled: 0, cameBack: 0, atBorrowers: 0, inStock: 3 },
     ]);
   });
 
@@ -376,7 +386,7 @@ describe("getHistorySummary", () => {
       });
     }
 
-    it("counts as came back once its order reads retour or cancelled", async () => {
+    it("counts as came back once its order reads retour, and cancelled once it reads cancelled", async () => {
       const white = await seedShoe("White", ["38"]);
       await seedOrder("DHD-1", RETURNED_STATUS_ID);
       await seedOrder("DHD-2", CANCELED_STATUS_ID);
@@ -386,7 +396,7 @@ describe("getHistorySummary", () => {
       await reconstructedSale(white.inv("38"), "DHD-3");
 
       expect(await summary({ shoeIds: [white.shoeId] })).toMatchObject([
-        { sold: 4, cameBack: 3 },
+        { sold: 4, cameBack: 2, cancelled: 1 },
       ]);
     });
 
@@ -397,7 +407,18 @@ describe("getHistorySummary", () => {
       await move({ reason: "retour", items: [{ inventoryId: white.inv("38"), quantity: 1 }], orderId: "DHD-1" });
 
       expect(await summary({ shoeIds: [white.shoeId] })).toMatchObject([
-        { sold: 1, cameBack: 1 },
+        { sold: 1, cameBack: 1, cancelled: 0 },
+      ]);
+    });
+
+    it("is not counted twice when the cancel was recorded live", async () => {
+      const white = await seedShoe("White", ["38"]);
+      await seedOrder("DHD-2", CANCELED_STATUS_ID);
+      await reconstructedSale(white.inv("38"), "DHD-2");
+      await move({ reason: "cancel", items: [{ inventoryId: white.inv("38"), quantity: 1 }], orderId: "DHD-2" });
+
+      expect(await summary({ shoeIds: [white.shoeId] })).toMatchObject([
+        { sold: 1, cameBack: 0, cancelled: 1 },
       ]);
     });
 
@@ -410,7 +431,7 @@ describe("getHistorySummary", () => {
       await reconstructedSale(white.inv("38"), "DHD-1");
 
       expect(await summary({ shoeIds: [white.shoeId] })).toMatchObject([
-        { sold: 1, cameBack: 0 },
+        { sold: 1, cameBack: 0, cancelled: 0 },
       ]);
     });
   });

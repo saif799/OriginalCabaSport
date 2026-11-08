@@ -97,6 +97,7 @@ export type HistoryEvent = {
 };
 
 const SALE_REASONS = reasonsOf(["sold"]);
+const CANCEL_REASONS = reasonsOf(["cancel"]);
 const CAME_BACK_REASONS = reasonsOf(["came-back"]);
 
 const localDay = sql`(${stockMovements.occurredAt} AT TIME ZONE ${SHOP_TZ})::date`;
@@ -248,6 +249,7 @@ export type HistorySummary = {
   arrived: number;
   /** Gross: a pair sold and returned counts here and in `cameBack`. */
   sold: number;
+  cancelled: number;
   cameBack: number;
   /** Live, whatever the date filter says. */
   atBorrowers: number;
@@ -256,20 +258,33 @@ export type HistorySummary = {
 
 /**
  * A Reconstructed sale has no reversal row — the past kept the fact that an
- * order came back, never the date. Its order's status stands in for one, with
- * two exceptions: a reversal the ledger did record live (or it counts twice),
- * and an Échange the resolver decided, whose status says nothing about its
- * stock — if pairs moved, the backfill gave them a row of their own (ADR-0009).
+ * order was cancelled or returned, never the date. Its order's status stands
+ * in for one, with two exceptions: a reversal the ledger did record live (or
+ * it counts twice), and an Échange the resolver decided, whose status says
+ * nothing about its stock — if pairs moved, the backfill gave them a row of
+ * their own (ADR-0009).
  */
 const cameBackByStatus = sql`(
   ${stockMovements.reconstructed}
   AND ${inArray(stockMovements.reason, SALE_REASONS)}
-  AND ${inArray(ordersTable.statusId, [RETURNED_STATUS_ID, CANCELED_STATUS_ID])}
+  AND ${eq(ordersTable.statusId, RETURNED_STATUS_ID)}
   AND ${ordersTable.echangeResolvedAt} IS NULL
   AND NOT EXISTS (
     SELECT 1 FROM stock_movements reversal
     WHERE reversal.order_id = ${stockMovements.orderId}
-      AND reversal.reason IN ('cancel', 'retour')
+      AND reversal.reason = 'retour'
+  )
+)`;
+
+const cancelledByStatus = sql`(
+  ${stockMovements.reconstructed}
+  AND ${inArray(stockMovements.reason, SALE_REASONS)}
+  AND ${eq(ordersTable.statusId, CANCELED_STATUS_ID)}
+  AND ${ordersTable.echangeResolvedAt} IS NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM stock_movements reversal
+    WHERE reversal.order_id = ${stockMovements.orderId}
+      AND reversal.reason = 'cancel'
   )
 )`;
 
@@ -302,6 +317,11 @@ export async function getHistorySummary(
           sql`-${stockMovements.delta}`,
           inArray(stockMovements.reason, SALE_REASONS),
         ),
+        cancelled: sum(
+          sql`${stockMovements.delta}`,
+          inArray(stockMovements.reason, CANCEL_REASONS),
+        ),
+        cancelledByStatus: sum(sql`-${stockMovements.delta}`, cancelledByStatus),
         cameBack: sum(
           sql`${stockMovements.delta}`,
           inArray(stockMovements.reason, CAME_BACK_REASONS),
@@ -343,6 +363,7 @@ export async function getHistorySummary(
         color: row.color,
         arrived: totals?.arrived ?? 0,
         sold: totals?.sold ?? 0,
+        cancelled: (totals?.cancelled ?? 0) + (totals?.cancelledByStatus ?? 0),
         cameBack: (totals?.cameBack ?? 0) + (totals?.cameBackByStatus ?? 0),
         atBorrowers: row.atBorrowers,
         inStock: row.inStock,

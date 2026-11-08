@@ -84,7 +84,7 @@ export default async function HistoryPage({
     return (
       <AdminPage
         title="Stock history"
-        description="Everything that happened to a shoe: arrived, sold, lent, brought back, came back."
+        description="Everything that happened to a shoe: arrived, sold, cancelled, lent, brought back, came back."
         width="wide"
       >
         {picker}
@@ -119,7 +119,7 @@ export default async function HistoryPage({
   return (
     <AdminPage
       title="Stock history"
-      description="Everything that happened to a shoe: arrived, sold, lent, brought back, came back."
+      description="Everything that happened to a shoe: arrived, sold, cancelled, lent, brought back, came back."
       width="wide"
     >
       <div className="flex flex-col gap-4">

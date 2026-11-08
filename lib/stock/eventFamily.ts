@@ -14,6 +14,7 @@ export const EVENT_FAMILIES = [
   "arrived",
   "sold",
   "came-back",
+  "cancel",
   "lent",
   // Not "returned": that word already means a customer's retour and an
   // Échange's Returned Pair. This is a Borrower handing pairs back.
@@ -27,7 +28,7 @@ const FAMILY_OF: Record<LedgerReason, EventFamily> = {
   arrival: "arrived",
   sale: "sold",
   "borrower-sale": "sold",
-  cancel: "came-back",
+  cancel: "cancel",
   retour: "came-back",
   "echange-return": "came-back",
   lend: "lent",
@@ -85,6 +86,12 @@ export const FAMILY_META: Record<
     badge: "border-transparent bg-orange-100 text-orange-900",
     text: "text-orange-700",
   },
+  cancel: {
+    label: "Cancel",
+    bar: "bg-red-500",
+    badge: "border-transparent bg-red-100 text-red-900",
+    text: "text-red-700",
+  },
   lent: {
     label: "Lent",
     bar: "bg-amber-400",
@@ -121,7 +128,7 @@ export function eventSubLabel(
     case "borrower-sale":
       return `Via ${borrowerName ?? "borrower"}`;
     case "cancel":
-      return hasOrder ? "Order cancelled" : "Store sale reverted";
+      return borrowerName ? `Via ${borrowerName}` : hasOrder ? "Online" : "Store";
     case "retour":
       return "Retour";
     case "echange-return":

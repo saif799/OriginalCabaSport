@@ -30,9 +30,10 @@ export function SummaryStrip({
               </span>
             )}
           </div>
-          <dl className="mt-2 grid grid-cols-5 gap-2 text-center">
+          <dl className="mt-2 grid grid-cols-6 gap-2 text-center">
             <Stat label="Arrived" value={summary.arrived} className={FAMILY_META.arrived.text} />
             <Stat label="Sold" value={summary.sold} className={FAMILY_META.sold.text} />
+            <Stat label="Cancel" value={summary.cancelled} className={FAMILY_META.cancel.text} />
             <Stat
               label="Came back"
               value={summary.cameBack}

@@ -22,6 +22,7 @@ import {
 import { OrderRowActions } from "./OrderRowActions";
 import { DeliveryRecordBadge } from "./DeliveryRecordBadge";
 import { WhatsAppSentBadge } from "./WhatsAppSentBadge";
+import { canonicalPhone } from "@/lib/orders/phone";
 
 export type OrderType = InferSelectModel<typeof ordersTable> & {
   statusName: string | null;
@@ -44,6 +45,8 @@ type BuildColumnsOptions = {
   onOrderMessaged: () => void;
   /** Called after an Échange is started from a row, for the same refetch. */
   onOrderExchanged: () => void;
+  /** Called when a customer's history is requested via their phone / badge. */
+  onSearchPhone?: (phone: string) => void;
   /**
    * Delivery Records by order id, resolved on the server. Only ready-to-ship
    * rows are ever present: the record answers "should I send this?", which a
@@ -69,6 +72,7 @@ export function buildOrderColumns({
   onOrderDeleted,
   onOrderMessaged,
   onOrderExchanged,
+  onSearchPhone,
   deliveryRecords,
   echangeLinks,
 }: BuildColumnsOptions): ColumnDef<OrderType>[] {
@@ -86,7 +90,20 @@ export function buildOrderColumns({
             <div className="text-muted-foreground text-sm">
               {row.original.telephone}
             </div>
-            {record ? <DeliveryRecordBadge record={record} /> : null}
+            {record ? (
+              <DeliveryRecordBadge
+                record={record}
+                onClick={
+                  onSearchPhone && row.original.telephone
+                    ? () =>
+                        onSearchPhone(
+                          canonicalPhone(row.original.telephone) ??
+                            row.original.telephone
+                        )
+                    : undefined
+                }
+              />
+            ) : null}
             {row.original.confirmationSentAt ? (
               <WhatsAppSentBadge sentAt={row.original.confirmationSentAt} />
             ) : null}

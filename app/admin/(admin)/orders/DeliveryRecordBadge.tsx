@@ -1,5 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import type { DeliveryRecord } from "@/lib/orders/deliveryRecord";
+import { cn } from "@/lib/utils";
 
 /**
  * The Delivery Record, as it appears under a customer's phone number on the
@@ -25,15 +26,50 @@ const STYLE = {
   poor: { variant: "destructive", label: "Poor", text: "" },
 } as const;
 
-export function DeliveryRecordBadge({ record }: { record: DeliveryRecord }) {
+export function DeliveryRecordBadge({
+  record,
+  onClick,
+}: {
+  record: DeliveryRecord;
+  onClick?: () => void;
+}) {
   const { state, delivered, returned } = record;
   const { variant, label, text } = STYLE[state];
+  const title = onClick
+    ? `${label}: ${delivered} delivered, ${returned} returned — click to view history`
+    : `${label}: ${delivered} delivered, ${returned} returned`;
+
+  if (onClick) {
+    return (
+      <Badge
+        asChild
+        variant={variant}
+        className={cn(
+          `mt-1 gap-1 px-1.5 py-0 text-[10px] font-semibold ${text}`,
+          "cursor-pointer transition-opacity hover:opacity-80 active:opacity-70"
+        )}
+        title={title}
+      >
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onClick();
+          }}
+        >
+          <span>{delivered} ✓</span>
+          <span aria-hidden="true">·</span>
+          <span>{returned} ↩</span>
+        </button>
+      </Badge>
+    );
+  }
 
   return (
     <Badge
       variant={variant}
       className={`mt-1 gap-1 px-1.5 py-0 text-[10px] font-semibold ${text}`}
-      title={`${label}: ${delivered} delivered, ${returned} returned`}
+      title={title}
     >
       <span>{delivered} ✓</span>
       <span aria-hidden="true">·</span>

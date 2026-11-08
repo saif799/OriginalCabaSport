@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { RefreshCcw, Search } from "lucide-react";
 import { toast } from "sonner";
@@ -81,16 +81,34 @@ export function DataTable({
   const { isPending, setParams } = useUrlParams();
   const [search, setSearch] = useState(query);
   const [isSyncing, setIsSyncing] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const pushed = useRef(query);
 
   useEffect(() => {
     // Nothing to push on mount or once our own update lands (the server value
     // catches up to the local one), so this only fires while typing.
-    if (search === query) return;
+    if (search === query || search === pushed.current) return;
     const timer = setTimeout(() => {
       setParams({ q: search || null, page: null }, "replace");
     }, 300);
     return () => clearTimeout(timer);
   }, [search, query, setParams]);
+
+  useEffect(() => {
+    if (query === pushed.current) return;
+    pushed.current = query;
+    setSearch(query);
+  }, [query]);
+
+  const handleSearchPhone = useCallback(
+    (phone: string) => {
+      pushed.current = phone;
+      setSearch(phone);
+      setParams({ q: phone || null, status: ALL_STATUSES, page: null }, "push");
+      searchInputRef.current?.focus();
+    },
+    [setParams]
+  );
 
   const columns = useMemo(
     () =>
@@ -111,10 +129,11 @@ export function DataTable({
         onOrderDeleted: () => router.refresh(),
         onOrderMessaged: () => router.refresh(),
         onOrderExchanged: () => router.refresh(),
+        onSearchPhone: handleSearchPhone,
         deliveryRecords,
         echangeLinks,
       }),
-    [sort, setParams, router, deliveryRecords, echangeLinks]
+    [sort, setParams, router, deliveryRecords, echangeLinks, handleSearchPhone]
   );
 
   const table = useReactTable({
@@ -169,6 +188,7 @@ export function DataTable({
           <div className="relative flex-1">
             <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
+              ref={searchInputRef}
               placeholder="Search name, reference or phone..."
               value={search}
               onChange={(event) => setSearch(event.target.value)}
