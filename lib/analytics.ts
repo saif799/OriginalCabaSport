@@ -903,7 +903,6 @@ export async function getMonthComparison(monthKeys: string[]): Promise<MonthComp
           JOIN ${shoeModels} m ON m.id = sh.model_id
           GROUP BY m.model_name
           ORDER BY units DESC
-          LIMIT 15
         `),
         db.execute(sql`
           WITH sold AS (
@@ -925,7 +924,6 @@ export async function getMonthComparison(monthKeys: string[]): Promise<MonthComp
           JOIN ${shoes} sh ON sh.id = si.shoe_id
           GROUP BY sh.color
           ORDER BY units DESC
-          LIMIT 15
         `),
         db.execute(sql`
           WITH sold AS (
@@ -1058,7 +1056,11 @@ export async function getMonthComparison(monthKeys: string[]): Promise<MonthComp
     cumRev.set(m.key, 0);
   }
 
-  for (let day = 1; day <= 31; day++) {
+  const maxDays = Math.max(
+    ...months.map((m) => new Date(m.year, m.month, 0).getDate()),
+  );
+
+  for (let day = 1; day <= maxDays; day++) {
     const dayKey = `Day ${day}`;
     const uRow: WideRow = { key: dayKey };
     const rRow: WideRow = { key: dayKey };

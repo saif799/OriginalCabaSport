@@ -33,8 +33,7 @@ export default async function StorefrontLayout({
   // shared with /admin, and this route group is exactly the storefront
   // boundary. Unset (dev, previews) renders nothing at all.
   const pixelId = process.env.FB_PIXEL_ID;
-  const gaId =
-    process.env.GA_MEASUREMENT_ID || process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID;
+  const gaId = process.env.GA_MEASUREMENT_ID;
 
   const { i18n } = await getT(lng);
   // The store-level JSON-LD carries prose, so it is translated like any other
