@@ -23,9 +23,14 @@ import {
   CANCELED_STATUS_ID,
 } from "@/lib/orders/status";
 
-const MONTHS = [
+export const MONTHS = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun",
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+] as const;
+
+export const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
 ] as const;
 
 // Order `source` code -> label (mirrors AvailableSources in sendShoeOrder.tsx).
@@ -61,6 +66,7 @@ export type Kpis = {
   stockUnits: number;
   outOfStockVariants: number;
   totalVariants: number;
+  saifPaymentUnits: number;
 };
 
 export type MonthlyRow = {
@@ -78,7 +84,9 @@ export type ProductRow = { label: string; units: number };
 
 export type AnalyticsData = {
   year: number;
+  month: number;
   years: number[];
+  availableMonths: number[];
   kpis: Kpis;
   monthly: MonthlyRow[];
   status: {
@@ -107,8 +115,19 @@ async function getAvailableYears(): Promise<number[]> {
   return years.length ? years : [new Date().getFullYear()];
 }
 
-async function getKpis(): Promise<Kpis> {
-  const [orders, deliveredUnits, stock, storeUnits] = await Promise.all([
+async function getAvailableMonths(year: number): Promise<number[]> {
+  const res = await db.execute(sql`
+    SELECT DISTINCT EXTRACT(MONTH FROM ${ordersTable.createdAt})::int AS m
+    FROM ${ordersTable}
+    WHERE EXTRACT(YEAR FROM ${ordersTable.createdAt}) = ${year}
+    ORDER BY m DESC
+  `);
+  const months = res.rows.map((r) => n((r as { m: unknown }).m));
+  return months.length ? months : [new Date().getMonth() + 1];
+}
+
+async function getKpis(year: number, month: number): Promise<Kpis> {
+  const [orders, deliveredUnits, stock, storeUnits, saifPayment] = await Promise.all([
     db.execute(sql`
       SELECT
         COUNT(*)::int AS total_orders,
@@ -116,12 +135,16 @@ async function getKpis(): Promise<Kpis> {
         COUNT(*) FILTER (WHERE ${ordersTable.statusId} = ${RETURNED_STATUS_ID})::int AS returned,
         COALESCE(SUM(${MONTANT}) FILTER (WHERE ${ordersTable.statusId} = ${DELIVERED_STATUS_ID}), 0)::float8 AS revenue
       FROM ${ordersTable}
+      WHERE EXTRACT(YEAR FROM ${ordersTable.createdAt}) = ${year}
+        AND EXTRACT(MONTH FROM ${ordersTable.createdAt}) = ${month}
     `),
     db.execute(sql`
       SELECT COALESCE(SUM(${orderItems.quantity}), 0)::int AS units
       FROM ${orderItems}
       JOIN ${ordersTable} ON ${ordersTable.id} = ${orderItems.orderId}
       WHERE ${ordersTable.statusId} = ${DELIVERED_STATUS_ID}
+        AND EXTRACT(YEAR FROM ${ordersTable.createdAt}) = ${year}
+        AND EXTRACT(MONTH FROM ${ordersTable.createdAt}) = ${month}
     `),
     db.execute(sql`
       SELECT
@@ -130,7 +153,17 @@ async function getKpis(): Promise<Kpis> {
         COUNT(*) FILTER (WHERE ${shoeInventory.quantity} = 0)::int AS out_of_stock
       FROM ${shoeInventory}
     `),
-    db.execute(sql`SELECT COUNT(*)::int AS units FROM ${storeSales}`),
+    db.execute(sql`SELECT COUNT(*)::int AS units FROM ${storeSales} WHERE EXTRACT(YEAR FROM ${storeSales.createdAt}) = ${year} AND EXTRACT(MONTH FROM ${storeSales.createdAt}) = ${month}`),
+    // Saif Payment: total shoe quantity from orders, excluding source k/m and store sales
+    db.execute(sql`
+      SELECT COALESCE(SUM(${orderItems.quantity}), 0)::int AS units
+      FROM ${orderItems}
+      JOIN ${ordersTable} ON ${ordersTable.id} = ${orderItems.orderId}
+      WHERE ${ordersTable.statusId} = ${DELIVERED_STATUS_ID}
+        AND ${ordersTable.source} NOT IN ('k', 'm')
+        AND EXTRACT(YEAR FROM ${ordersTable.createdAt}) = ${year}
+        AND EXTRACT(MONTH FROM ${ordersTable.createdAt}) = ${month}
+    `),
   ]);
 
   const o = orders.rows[0] as Record<string, unknown>;
@@ -139,6 +172,7 @@ async function getKpis(): Promise<Kpis> {
   const storeSaleUnits = n((storeUnits.rows[0] as { units: unknown }).units);
   const deliveredUnitCount = n((deliveredUnits.rows[0] as { units: unknown }).units);
   const s = stock.rows[0] as Record<string, unknown>;
+  const saifPaymentUnits = n((saifPayment.rows[0] as { units: unknown }).units);
 
   return {
     revenue: n(o.revenue),
@@ -151,6 +185,7 @@ async function getKpis(): Promise<Kpis> {
     stockUnits: n(s.stock_units),
     outOfStockVariants: n(s.out_of_stock),
     totalVariants: n(s.total_variants),
+    saifPaymentUnits,
   };
 }
 
@@ -193,13 +228,14 @@ async function getMonthlyTrends(year: number): Promise<MonthlyRow[]> {
   });
 }
 
-async function getStatusBreakdown(year: number) {
+async function getStatusBreakdown(year: number, month: number) {
   const [breakdown, totals] = await Promise.all([
     db.execute(sql`
       SELECT ${stautsGroupsTable.name} AS name, COUNT(${ordersTable.id})::int AS count
       FROM ${ordersTable}
       JOIN ${stautsGroupsTable} ON ${stautsGroupsTable.id} = ${ordersTable.statusId}
       WHERE EXTRACT(YEAR FROM ${ordersTable.createdAt}) = ${year}
+        AND EXTRACT(MONTH FROM ${ordersTable.createdAt}) = ${month}
       GROUP BY ${stautsGroupsTable.name}
       ORDER BY count DESC
     `),
@@ -211,6 +247,7 @@ async function getStatusBreakdown(year: number) {
         COUNT(*) FILTER (WHERE ${ordersTable.type} = 2)::int AS exchanges
       FROM ${ordersTable}
       WHERE EXTRACT(YEAR FROM ${ordersTable.createdAt}) = ${year}
+        AND EXTRACT(MONTH FROM ${ordersTable.createdAt}) = ${month}
     `),
   ]);
 
@@ -231,13 +268,14 @@ async function getStatusBreakdown(year: number) {
   };
 }
 
-async function getBySource(year: number): Promise<SourceRow[]> {
+async function getBySource(year: number, month: number): Promise<SourceRow[]> {
   const res = await db.execute(sql`
     SELECT ${ordersTable.source} AS source,
            COUNT(*)::int AS orders,
            COALESCE(SUM(${MONTANT}) FILTER (WHERE ${ordersTable.statusId} = ${DELIVERED_STATUS_ID}), 0)::float8 AS revenue
     FROM ${ordersTable}
     WHERE EXTRACT(YEAR FROM ${ordersTable.createdAt}) = ${year}
+      AND EXTRACT(MONTH FROM ${ordersTable.createdAt}) = ${month}
     GROUP BY ${ordersTable.source}
     ORDER BY orders DESC
   `);
@@ -252,13 +290,14 @@ async function getBySource(year: number): Promise<SourceRow[]> {
   });
 }
 
-async function getByWilaya(year: number): Promise<WilayaRow[]> {
+async function getByWilaya(year: number, month: number): Promise<WilayaRow[]> {
   const res = await db.execute(sql`
     SELECT ${ordersTable.code_wilaya} AS code,
            COUNT(*)::int AS orders,
            COALESCE(SUM(${MONTANT}) FILTER (WHERE ${ordersTable.statusId} = ${DELIVERED_STATUS_ID}), 0)::float8 AS revenue
     FROM ${ordersTable}
     WHERE EXTRACT(YEAR FROM ${ordersTable.createdAt}) = ${year}
+      AND EXTRACT(MONTH FROM ${ordersTable.createdAt}) = ${month}
     GROUP BY ${ordersTable.code_wilaya}
     ORDER BY orders DESC
     LIMIT 10
@@ -274,11 +313,12 @@ async function getByWilaya(year: number): Promise<WilayaRow[]> {
   });
 }
 
-async function getByProvider(year: number): Promise<ProviderRow[]> {
+async function getByProvider(year: number, month: number): Promise<ProviderRow[]> {
   const res = await db.execute(sql`
     SELECT ${ordersTable.provider} AS provider, COUNT(*)::int AS orders
     FROM ${ordersTable}
     WHERE EXTRACT(YEAR FROM ${ordersTable.createdAt}) = ${year}
+      AND EXTRACT(MONTH FROM ${ordersTable.createdAt}) = ${month}
     GROUP BY ${ordersTable.provider}
     ORDER BY orders DESC
   `);
@@ -292,6 +332,7 @@ async function getByProvider(year: number): Promise<ProviderRow[]> {
 /** Units sold (delivered order items + store sales) grouped by a product column. */
 async function getTopSold(
   year: number,
+  month: number,
   by: "model" | "color",
 ): Promise<ProductRow[]> {
   const groupCol = by === "model" ? shoeModels.modelName : shoes.color;
@@ -302,10 +343,12 @@ async function getTopSold(
       JOIN ${ordersTable} ON ${ordersTable.id} = ${orderItems.orderId}
       WHERE ${ordersTable.statusId} = ${DELIVERED_STATUS_ID}
         AND EXTRACT(YEAR FROM ${ordersTable.createdAt}) = ${year}
+        AND EXTRACT(MONTH FROM ${ordersTable.createdAt}) = ${month}
       UNION ALL
       SELECT ${storeSales.shoeInventoryId} AS inv_id, 1 AS qty
       FROM ${storeSales}
       WHERE EXTRACT(YEAR FROM ${storeSales.createdAt}) = ${year}
+        AND EXTRACT(MONTH FROM ${storeSales.createdAt}) = ${month}
     )
     SELECT ${groupCol} AS label, SUM(sold.qty)::int AS units
     FROM sold
@@ -339,27 +382,32 @@ async function getStockByModel(): Promise<ProductRow[]> {
 }
 
 /** Loads everything the /analytics page needs for the given year. */
-export async function getAnalyticsData(requestedYear?: number): Promise<AnalyticsData> {
+export async function getAnalyticsData(requestedYear?: number, requestedMonth?: number): Promise<AnalyticsData> {
   const years = await getAvailableYears();
   const year =
     requestedYear && years.includes(requestedYear) ? requestedYear : years[0];
+  const availableMonths = await getAvailableMonths(year);
+  const month =
+    requestedMonth && availableMonths.includes(requestedMonth) ? requestedMonth : availableMonths[0];
 
   const [kpis, monthly, status, bySource, byWilaya, byProvider, topModels, topColors, stockByModel] =
     await Promise.all([
-      getKpis(),
+      getKpis(year, month),
       getMonthlyTrends(year),
-      getStatusBreakdown(year),
-      getBySource(year),
-      getByWilaya(year),
-      getByProvider(year),
-      getTopSold(year, "model"),
-      getTopSold(year, "color"),
+      getStatusBreakdown(year, month),
+      getBySource(year, month),
+      getByWilaya(year, month),
+      getByProvider(year, month),
+      getTopSold(year, month, "model"),
+      getTopSold(year, month, "color"),
       getStockByModel(),
     ]);
 
   return {
     year,
+    month,
     years,
+    availableMonths,
     kpis,
     monthly,
     status,
@@ -619,5 +667,534 @@ export async function getModelComparison(params: {
   });
 
   return { models, bucketUnit: unit, timeSeries, sizeDemand, totals };
+}
+
+// ---------------------------------------------------------------------------
+// Month comparison (/analytics/compare-months)
+// ---------------------------------------------------------------------------
+
+export type MonthOption = {
+  key: string; // "YYYY-MM"
+  year: number;
+  month: number;
+  label: string; // "November 2026"
+  shortLabel: string; // "Nov 2026"
+};
+
+export async function getAvailableMonthOptions(): Promise<MonthOption[]> {
+  const res = await db.execute(sql`
+    SELECT DISTINCT
+      EXTRACT(YEAR FROM d)::int AS y,
+      EXTRACT(MONTH FROM d)::int AS m
+    FROM (
+      SELECT ${ordersTable.createdAt} AS d FROM ${ordersTable}
+      UNION ALL
+      SELECT ${storeSales.createdAt} AS d FROM ${storeSales}
+    ) dates
+    WHERE d IS NOT NULL
+    ORDER BY y DESC, m DESC
+  `);
+  const list: MonthOption[] = [];
+  for (const r of res.rows) {
+    const row = r as Record<string, unknown>;
+    const y = n(row.y);
+    const m = n(row.m);
+    if (y && m && m >= 1 && m <= 12) {
+      list.push({
+        key: `${y}-${String(m).padStart(2, "0")}`,
+        year: y,
+        month: m,
+        label: `${MONTH_NAMES[m - 1]} ${y}`,
+        shortLabel: `${MONTHS[m - 1]} ${y}`,
+      });
+    }
+  }
+  if (!list.length) {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth() + 1;
+    list.push({
+      key: `${y}-${String(m).padStart(2, "0")}`,
+      year: y,
+      month: m,
+      label: `${MONTH_NAMES[m - 1]} ${y}`,
+      shortLabel: `${MONTHS[m - 1]} ${y}`,
+    });
+  }
+  return list;
+}
+
+export type ComparedMonth = {
+  key: string;
+  year: number;
+  month: number;
+  label: string;
+  shortLabel: string;
+  color: string;
+};
+
+export type MonthTotals = {
+  key: string;
+  year: number;
+  month: number;
+  label: string;
+  unitsSold: number;
+  deliveredOrders: number;
+  totalOrders: number;
+  returnedOrders: number;
+  returnedUnits: number;
+  returnRate: number;
+  successRate: number;
+  revenue: number;
+  storeSaleUnits: number;
+  saifPaymentUnits: number;
+};
+
+export type MonthComparison = {
+  months: ComparedMonth[];
+  totals: MonthTotals[];
+  dailyUnits: WideRow[];
+  dailyRevenue: WideRow[];
+  cumulativeUnits: WideRow[];
+  cumulativeRevenue: WideRow[];
+  topModels: WideRow[];
+  topColors: WideRow[];
+  sizeDemand: WideRow[];
+  bySource: WideRow[];
+  deliveryOutcomes: WideRow[];
+};
+
+export async function getMonthComparison(monthKeys: string[]): Promise<MonthComparison> {
+  const parsedMap = new Map<string, { year: number; month: number }>();
+  for (const k of monthKeys) {
+    const parts = k.trim().split("-");
+    if (parts.length === 2) {
+      const y = Number(parts[0]);
+      const m = Number(parts[1]);
+      if (y > 2000 && m >= 1 && m <= 12) {
+        parsedMap.set(`${y}-${String(m).padStart(2, "0")}`, { year: y, month: m });
+      }
+    }
+  }
+
+  const sortedKeys = Array.from(parsedMap.entries()).sort(
+    (a, b) => a[1].year - b[1].year || a[1].month - b[1].month,
+  );
+
+  const months: ComparedMonth[] = sortedKeys.map(([key, val], idx) => ({
+    key,
+    year: val.year,
+    month: val.month,
+    label: `${MONTH_NAMES[val.month - 1]} ${val.year}`,
+    shortLabel: `${MONTHS[val.month - 1]} ${String(val.year).slice(2)}`,
+    color: CHART_PALETTE[idx % CHART_PALETTE.length],
+  }));
+
+  if (months.length === 0) {
+    return {
+      months: [],
+      totals: [],
+      dailyUnits: [],
+      dailyRevenue: [],
+      cumulativeUnits: [],
+      cumulativeRevenue: [],
+      topModels: [],
+      topColors: [],
+      sizeDemand: [],
+      bySource: [],
+      deliveryOutcomes: [],
+    };
+  }
+
+  const monthData = await Promise.all(
+    months.map(async (m) => {
+      const [
+        ordersRes,
+        orderUnitsRes,
+        storeSalesRes,
+        saifPaymentRes,
+        dailyOrdersRes,
+        dailyUnitsRes,
+        modelsRes,
+        colorsRes,
+        sizesRes,
+        sourcesRes,
+      ] = await Promise.all([
+        db.execute(sql`
+          SELECT
+            COUNT(*)::int AS total_orders,
+            COUNT(*) FILTER (WHERE ${ordersTable.statusId} = ${DELIVERED_STATUS_ID})::int AS delivered,
+            COUNT(*) FILTER (WHERE ${ordersTable.statusId} = ${RETURNED_STATUS_ID})::int AS returned,
+            COALESCE(SUM(${MONTANT}) FILTER (WHERE ${ordersTable.statusId} = ${DELIVERED_STATUS_ID}), 0)::float8 AS revenue
+          FROM ${ordersTable}
+          WHERE EXTRACT(YEAR FROM ${ordersTable.createdAt}) = ${m.year}
+            AND EXTRACT(MONTH FROM ${ordersTable.createdAt}) = ${m.month}
+        `),
+        db.execute(sql`
+          SELECT
+            COALESCE(SUM(${orderItems.quantity}) FILTER (WHERE ${ordersTable.statusId} = ${DELIVERED_STATUS_ID}), 0)::int AS delivered_units,
+            COALESCE(SUM(${orderItems.quantity}) FILTER (WHERE ${ordersTable.statusId} = ${RETURNED_STATUS_ID}), 0)::int AS returned_units
+          FROM ${orderItems}
+          JOIN ${ordersTable} ON ${ordersTable.id} = ${orderItems.orderId}
+          WHERE EXTRACT(YEAR FROM ${ordersTable.createdAt}) = ${m.year}
+            AND EXTRACT(MONTH FROM ${ordersTable.createdAt}) = ${m.month}
+        `),
+        db.execute(sql`
+          SELECT COUNT(*)::int AS units
+          FROM ${storeSales}
+          WHERE EXTRACT(YEAR FROM ${storeSales.createdAt}) = ${m.year}
+            AND EXTRACT(MONTH FROM ${storeSales.createdAt}) = ${m.month}
+        `),
+        db.execute(sql`
+          SELECT COALESCE(SUM(${orderItems.quantity}), 0)::int AS units
+          FROM ${orderItems}
+          JOIN ${ordersTable} ON ${ordersTable.id} = ${orderItems.orderId}
+          WHERE ${ordersTable.statusId} = ${DELIVERED_STATUS_ID}
+            AND ${ordersTable.source} NOT IN ('k', 'm')
+            AND EXTRACT(YEAR FROM ${ordersTable.createdAt}) = ${m.year}
+            AND EXTRACT(MONTH FROM ${ordersTable.createdAt}) = ${m.month}
+        `),
+        db.execute(sql`
+          SELECT
+            EXTRACT(DAY FROM ${ordersTable.createdAt})::int AS day,
+            COALESCE(SUM(${MONTANT}) FILTER (WHERE ${ordersTable.statusId} = ${DELIVERED_STATUS_ID}), 0)::float8 AS revenue,
+            COUNT(*) FILTER (WHERE ${ordersTable.statusId} = ${DELIVERED_STATUS_ID})::int AS delivered_orders
+          FROM ${ordersTable}
+          WHERE EXTRACT(YEAR FROM ${ordersTable.createdAt}) = ${m.year}
+            AND EXTRACT(MONTH FROM ${ordersTable.createdAt}) = ${m.month}
+          GROUP BY 1
+        `),
+        db.execute(sql`
+          WITH daily_sold AS (
+            SELECT EXTRACT(DAY FROM o.created_at)::int AS day, oi.quantity::int AS qty
+            FROM ${ordersTable} o
+            JOIN ${orderItems} oi ON oi.order_id = o.id
+            WHERE o.status_id = ${DELIVERED_STATUS_ID}
+              AND EXTRACT(YEAR FROM o.created_at) = ${m.year}
+              AND EXTRACT(MONTH FROM o.created_at) = ${m.month}
+            UNION ALL
+            SELECT EXTRACT(DAY FROM ss.created_at)::int AS day, 1 AS qty
+            FROM ${storeSales} ss
+            WHERE EXTRACT(YEAR FROM ss.created_at) = ${m.year}
+              AND EXTRACT(MONTH FROM ss.created_at) = ${m.month}
+          )
+          SELECT day, SUM(qty)::int AS units
+          FROM daily_sold
+          GROUP BY 1
+        `),
+        db.execute(sql`
+          WITH sold AS (
+            SELECT oi.shoe_inventory_id AS inv_id, oi.quantity::int AS qty
+            FROM ${orderItems} oi
+            JOIN ${ordersTable} o ON o.id = oi.order_id
+            WHERE o.status_id = ${DELIVERED_STATUS_ID}
+              AND EXTRACT(YEAR FROM o.created_at) = ${m.year}
+              AND EXTRACT(MONTH FROM o.created_at) = ${m.month}
+            UNION ALL
+            SELECT ss.shoe_inventory_id AS inv_id, 1 AS qty
+            FROM ${storeSales} ss
+            WHERE EXTRACT(YEAR FROM ss.created_at) = ${m.year}
+              AND EXTRACT(MONTH FROM ss.created_at) = ${m.month}
+          )
+          SELECT m.model_name AS label, SUM(sold.qty)::int AS units
+          FROM sold
+          JOIN ${shoeInventory} si ON si.id = sold.inv_id
+          JOIN ${shoes} sh ON sh.id = si.shoe_id
+          JOIN ${shoeModels} m ON m.id = sh.model_id
+          GROUP BY m.model_name
+          ORDER BY units DESC
+          LIMIT 15
+        `),
+        db.execute(sql`
+          WITH sold AS (
+            SELECT oi.shoe_inventory_id AS inv_id, oi.quantity::int AS qty
+            FROM ${orderItems} oi
+            JOIN ${ordersTable} o ON o.id = oi.order_id
+            WHERE o.status_id = ${DELIVERED_STATUS_ID}
+              AND EXTRACT(YEAR FROM o.created_at) = ${m.year}
+              AND EXTRACT(MONTH FROM o.created_at) = ${m.month}
+            UNION ALL
+            SELECT ss.shoe_inventory_id AS inv_id, 1 AS qty
+            FROM ${storeSales} ss
+            WHERE EXTRACT(YEAR FROM ss.created_at) = ${m.year}
+              AND EXTRACT(MONTH FROM ss.created_at) = ${m.month}
+          )
+          SELECT sh.color AS label, SUM(sold.qty)::int AS units
+          FROM sold
+          JOIN ${shoeInventory} si ON si.id = sold.inv_id
+          JOIN ${shoes} sh ON sh.id = si.shoe_id
+          GROUP BY sh.color
+          ORDER BY units DESC
+          LIMIT 15
+        `),
+        db.execute(sql`
+          WITH sold AS (
+            SELECT si.size AS size, oi.quantity::int AS qty
+            FROM ${orderItems} oi
+            JOIN ${ordersTable} o ON o.id = oi.order_id
+            JOIN ${shoeInventory} si ON si.id = oi.shoe_inventory_id
+            WHERE o.status_id = ${DELIVERED_STATUS_ID}
+              AND EXTRACT(YEAR FROM o.created_at) = ${m.year}
+              AND EXTRACT(MONTH FROM o.created_at) = ${m.month}
+            UNION ALL
+            SELECT si.size AS size, 1 AS qty
+            FROM ${storeSales} ss
+            JOIN ${shoeInventory} si ON si.id = ss.shoe_inventory_id
+            WHERE EXTRACT(YEAR FROM ss.created_at) = ${m.year}
+              AND EXTRACT(MONTH FROM ss.created_at) = ${m.month}
+          )
+          SELECT size, SUM(qty)::int AS units
+          FROM sold
+          GROUP BY size
+          ORDER BY size
+        `),
+        db.execute(sql`
+          SELECT ${ordersTable.source} AS source,
+                 COUNT(*)::int AS orders
+          FROM ${ordersTable}
+          WHERE EXTRACT(YEAR FROM ${ordersTable.createdAt}) = ${m.year}
+            AND EXTRACT(MONTH FROM ${ordersTable.createdAt}) = ${m.month}
+          GROUP BY ${ordersTable.source}
+          ORDER BY orders DESC
+        `),
+      ]);
+
+      const ord = ordersRes.rows[0] as Record<string, unknown>;
+      const unitsRow = orderUnitsRes.rows[0] as Record<string, unknown>;
+      const storeUnits = n((storeSalesRes.rows[0] as { units: unknown }).units);
+      const saifUnits = n((saifPaymentRes.rows[0] as { units: unknown }).units);
+
+      const dailyUnitsMap = new Map<number, number>();
+      for (const r of dailyUnitsRes.rows) {
+        const row = r as Record<string, unknown>;
+        dailyUnitsMap.set(n(row.day), n(row.units));
+      }
+
+      const dailyRevenueMap = new Map<number, number>();
+      for (const r of dailyOrdersRes.rows) {
+        const row = r as Record<string, unknown>;
+        dailyRevenueMap.set(n(row.day), n(row.revenue));
+      }
+
+      const modelsMap = new Map<string, number>();
+      for (const r of modelsRes.rows) {
+        const row = r as Record<string, unknown>;
+        modelsMap.set(String(row.label), n(row.units));
+      }
+
+      const colorsMap = new Map<string, number>();
+      for (const r of colorsRes.rows) {
+        const row = r as Record<string, unknown>;
+        colorsMap.set(String(row.label), n(row.units));
+      }
+
+      const sizesMap = new Map<string, number>();
+      for (const r of sizesRes.rows) {
+        const row = r as Record<string, unknown>;
+        sizesMap.set(String(row.size), n(row.units));
+      }
+
+      const sourcesMap = new Map<string, number>();
+      for (const r of sourcesRes.rows) {
+        const row = r as Record<string, unknown>;
+        sourcesMap.set(String(row.source ?? ""), n(row.orders));
+      }
+
+      return {
+        totalOrders: n(ord.total_orders),
+        deliveredOrders: n(ord.delivered),
+        returnedOrders: n(ord.returned),
+        revenue: n(ord.revenue),
+        deliveredUnits: n(unitsRow.delivered_units),
+        returnedUnits: n(unitsRow.returned_units),
+        storeSaleUnits: storeUnits,
+        saifPaymentUnits: saifUnits,
+        dailyUnitsMap,
+        dailyRevenueMap,
+        modelsMap,
+        colorsMap,
+        sizesMap,
+        sourcesMap,
+      };
+    }),
+  );
+
+  const totals: MonthTotals[] = months.map((m, idx) => {
+    const d = monthData[idx];
+    const delivered = d.deliveredOrders;
+    const returned = d.returnedOrders;
+    return {
+      key: m.key,
+      year: m.year,
+      month: m.month,
+      label: m.label,
+      unitsSold: d.deliveredUnits + d.storeSaleUnits,
+      deliveredOrders: delivered,
+      totalOrders: d.totalOrders,
+      returnedOrders: returned,
+      returnedUnits: d.returnedUnits,
+      returnRate: delivered + returned > 0 ? returned / (delivered + returned) : 0,
+      successRate: delivered + returned > 0 ? delivered / (delivered + returned) : 0,
+      revenue: d.revenue,
+      storeSaleUnits: d.storeSaleUnits,
+      saifPaymentUnits: d.saifPaymentUnits,
+    };
+  });
+
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+  const currentDay = now.getDate();
+
+  const dailyUnits: WideRow[] = [];
+  const dailyRevenue: WideRow[] = [];
+  const cumulativeUnits: WideRow[] = [];
+  const cumulativeRevenue: WideRow[] = [];
+
+  const cumUnits = new Map<string, number>();
+  const cumRev = new Map<string, number>();
+  for (const m of months) {
+    cumUnits.set(m.key, 0);
+    cumRev.set(m.key, 0);
+  }
+
+  for (let day = 1; day <= 31; day++) {
+    const dayKey = `Day ${day}`;
+    const uRow: WideRow = { key: dayKey };
+    const rRow: WideRow = { key: dayKey };
+    const cuRow: WideRow = { key: dayKey };
+    const crRow: WideRow = { key: dayKey };
+
+    for (let idx = 0; idx < months.length; idx++) {
+      const m = months[idx];
+      const d = monthData[idx];
+      const daysInMonth = new Date(m.year, m.month, 0).getDate();
+      const isCurrent = m.year === currentYear && m.month === currentMonth;
+
+      if (day > daysInMonth) {
+        continue;
+      }
+      if (isCurrent && day > currentDay) {
+        continue;
+      }
+
+      const u = d.dailyUnitsMap.get(day) ?? 0;
+      const r = d.dailyRevenueMap.get(day) ?? 0;
+      uRow[m.key] = u;
+      rRow[m.key] = r;
+
+      const newCU = (cumUnits.get(m.key) ?? 0) + u;
+      const newCR = (cumRev.get(m.key) ?? 0) + r;
+      cumUnits.set(m.key, newCU);
+      cumRev.set(m.key, newCR);
+      cuRow[m.key] = newCU;
+      crRow[m.key] = newCR;
+    }
+
+    dailyUnits.push(uRow);
+    dailyRevenue.push(rRow);
+    cumulativeUnits.push(cuRow);
+    cumulativeRevenue.push(crRow);
+  }
+
+  const modelTotals = new Map<string, number>();
+  for (const d of monthData) {
+    for (const [model, units] of d.modelsMap) {
+      modelTotals.set(model, (modelTotals.get(model) ?? 0) + units);
+    }
+  }
+  const topModelNames = Array.from(modelTotals.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([name]) => name);
+
+  const topModels: WideRow[] = topModelNames.map((name) => {
+    const row: WideRow = { key: name };
+    for (let idx = 0; idx < months.length; idx++) {
+      row[months[idx].key] = monthData[idx].modelsMap.get(name) ?? 0;
+    }
+    return row;
+  });
+
+  const colorTotals = new Map<string, number>();
+  for (const d of monthData) {
+    for (const [color, units] of d.colorsMap) {
+      colorTotals.set(color, (colorTotals.get(color) ?? 0) + units);
+    }
+  }
+  const topColorNames = Array.from(colorTotals.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([name]) => name);
+
+  const topColors: WideRow[] = topColorNames.map((name) => {
+    const row: WideRow = { key: name };
+    for (let idx = 0; idx < months.length; idx++) {
+      row[months[idx].key] = monthData[idx].colorsMap.get(name) ?? 0;
+    }
+    return row;
+  });
+
+  const allSizes = new Set<string>();
+  for (const d of monthData) {
+    for (const s of d.sizesMap.keys()) allSizes.add(s);
+  }
+  const sortedSizes = Array.from(allSizes).sort(
+    (a, b) => Number(a) - Number(b) || a.localeCompare(b),
+  );
+  const sizeDemand: WideRow[] = sortedSizes.map((size) => {
+    const row: WideRow = { key: size };
+    for (let idx = 0; idx < months.length; idx++) {
+      row[months[idx].key] = monthData[idx].sizesMap.get(size) ?? 0;
+    }
+    return row;
+  });
+
+  const allSources = new Set<string>();
+  for (const d of monthData) {
+    for (const s of d.sourcesMap.keys()) allSources.add(s);
+  }
+  const bySource: WideRow[] = Array.from(allSources)
+    .sort()
+    .map((code) => {
+      const row: WideRow = { key: SOURCE_LABELS[code] ?? (code || "Unknown") };
+      for (let idx = 0; idx < months.length; idx++) {
+        row[months[idx].key] = monthData[idx].sourcesMap.get(code) ?? 0;
+      }
+      return row;
+    });
+
+  const outcomeMetrics: {
+    key: string;
+    get: (d: (typeof monthData)[0]) => number;
+  }[] = [
+    { key: "Total orders", get: (d) => d.totalOrders },
+    { key: "Delivered orders", get: (d) => d.deliveredOrders },
+    { key: "Returned orders", get: (d) => d.returnedOrders },
+    { key: "Store sales (units)", get: (d) => d.storeSaleUnits },
+    { key: "Saif payment (units)", get: (d) => d.saifPaymentUnits },
+  ];
+
+  const deliveryOutcomes: WideRow[] = outcomeMetrics.map((om) => {
+    const row: WideRow = { key: om.key };
+    for (let idx = 0; idx < months.length; idx++) {
+      row[months[idx].key] = om.get(monthData[idx]);
+    }
+    return row;
+  });
+
+  return {
+    months,
+    totals,
+    dailyUnits,
+    dailyRevenue,
+    cumulativeUnits,
+    cumulativeRevenue,
+    topModels,
+    topColors,
+    sizeDemand,
+    bySource,
+    deliveryOutcomes,
+  };
 }
 

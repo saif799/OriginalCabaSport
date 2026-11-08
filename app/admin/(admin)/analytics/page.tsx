@@ -8,9 +8,9 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import AdminPage from "@/components/admin/AdminPage";
-import { getAnalyticsData } from "@/lib/analytics";
+import { getAnalyticsData, MONTH_NAMES } from "@/lib/analytics";
 import { formatDA, formatInt, formatPct } from "@/lib/format";
-import { YearSelect } from "./YearSelect";
+import { MonthYearSelect } from "./MonthYearSelect";
 import {
   HorizontalBars,
   MonthlyOrdersChart,
@@ -25,24 +25,33 @@ export const dynamic = "force-dynamic";
 export default async function AnalyticsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ year?: string }>;
+  searchParams: Promise<{ year?: string; month?: string }>;
 }) {
-  const { year: yearParam } = await searchParams;
+  const { year: yearParam, month: monthParam } = await searchParams;
   const requestedYear = yearParam ? Number(yearParam) : undefined;
-  const data = await getAnalyticsData(requestedYear);
+  const requestedMonth = monthParam ? Number(monthParam) : undefined;
+  const data = await getAnalyticsData(requestedYear, requestedMonth);
   const { kpis, status } = data;
+  const periodLabel = `${MONTH_NAMES[data.month - 1]} ${data.year}`;
 
   return (
     <AdminPage
       title="Analytics"
       description={
         <>
-          Headline figures are all-time. Charts below are for{" "}
-          <span className="font-medium text-foreground">{data.year}</span>.
+          Figures and charts are for{" "}
+          <span className="font-medium text-foreground">{periodLabel}</span>.
         </>
       }
       actions={
         <>
+          <Link
+            href="/admin/analytics/compare-months"
+            className="inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+          >
+            <GitCompareArrows className="h-4 w-4" />
+            Compare months
+          </Link>
           <Link
             href="/admin/analytics/compare"
             className="inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
@@ -50,12 +59,17 @@ export default async function AnalyticsPage({
             <GitCompareArrows className="h-4 w-4" />
             Compare models
           </Link>
-          <YearSelect year={data.year} years={data.years} />
+          <MonthYearSelect
+            year={data.year}
+            month={data.month}
+            years={data.years}
+            availableMonths={data.availableMonths}
+          />
         </>
       }
     >
-      {/* KPI tiles — all-time */}
-      <section className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+      {/* KPI tiles — filtered by selected month */}
+      <section className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-7">
         <StatTile
           title="Revenue"
           value={formatDA(kpis.revenue)}
@@ -75,6 +89,7 @@ export default async function AnalyticsPage({
           value={formatInt(kpis.stockUnits)}
           sub={`${formatInt(kpis.outOfStockVariants)}/${formatInt(kpis.totalVariants)} variants out`}
         />
+        <StatTile title="Saif payment" value={formatInt(kpis.saifPaymentUnits)} sub="shoes qty · excl. k/m" />
       </section>
 
       {/* Sales trends */}
@@ -89,9 +104,9 @@ export default async function AnalyticsPage({
       </div>
 
       {/* Delivery & order health */}
-      <SectionHeading title="Delivery & order health" note={`${data.year}`} />
+      <SectionHeading title="Delivery & order health" note={periodLabel} />
       <div className="grid gap-4 lg:grid-cols-2">
-        <ChartCard title="Order status breakdown" description="All orders created this year, by status">
+        <ChartCard title="Order status breakdown" description={`Orders in ${periodLabel}, by status`}>
           <StatusDonut data={status.breakdown} />
         </ChartCard>
         <Card>
@@ -109,7 +124,7 @@ export default async function AnalyticsPage({
       </div>
 
       {/* Channels & geography */}
-      <SectionHeading title="Channels & geography" note={`${data.year}`} />
+      <SectionHeading title="Channels & geography" note={periodLabel} />
       <div className="grid gap-4 lg:grid-cols-2">
         <ChartCard title="Orders by source" description="Where orders came from">
           <HorizontalBars
@@ -131,7 +146,7 @@ export default async function AnalyticsPage({
       </div>
 
       {/* Products & inventory */}
-      <SectionHeading title="Products & inventory" note={`Sold in ${data.year} · stock is current`} />
+      <SectionHeading title="Products & inventory" note={`Sold in ${periodLabel} · stock is current`} />
       <div className="grid gap-4 lg:grid-cols-2">
         <ChartCard title="Top models sold" description="Delivered orders + store sales">
           <ProductBars data={data.topModels} color="var(--chart-1)" />

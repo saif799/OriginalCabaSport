@@ -17,7 +17,7 @@ import { formatDZD, normalizeDigits } from "@/lib/format";
 import { useDeliveryCoverage } from "@/lib/delivery/useDeliveryCoverage";
 import type { OrderDraft } from "@/lib/orders/placeOrder";
 import { BRAND } from "@/lib/storefront/seo";
-import { CURRENCY, track } from "@/lib/storefront/pixel";
+import { trackBeginCheckout } from "@/lib/storefront/analytics";
 import Ltr from "@/components/storefront/Ltr";
 import { Trans, useLocalePath, useT } from "@/app/i18n/client";
 
@@ -160,15 +160,11 @@ export default function OrderForm({
     // validation error is not checkout intent. `productPrice`, not `total` —
     // the delivery fee is excluded here exactly as it is from Purchase, so the
     // two events are comparable.
-    track("InitiateCheckout", {
-      content_ids: [shoeId],
-      content_type: "product",
-      contents: [
-        { id: shoeId, quantity: 1, item_price: selectedSize.resolvedPrice },
-      ],
+    trackBeginCheckout({
+      shoeId,
+      contentName: modelName,
+      size: selectedSize.size,
       value: selectedSize.resolvedPrice,
-      currency: CURRENCY,
-      num_items: 1,
     });
 
     setLoading(true);

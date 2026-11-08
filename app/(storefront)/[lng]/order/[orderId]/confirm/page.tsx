@@ -56,6 +56,8 @@ export default async function OrderConfirmPage({ params }: Props) {
   // more columns on the one above: the confirmation page is not a hot path,
   // and one copy of the pricing rule is worth more than one round trip.
   const pixelId = process.env.FB_PIXEL_ID;
+  const gaId =
+    process.env.GA_MEASUREMENT_ID || process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID;
   const {
     contents: pixelContents,
     contentIds: pixelContentIds,
@@ -80,7 +82,7 @@ export default async function OrderConfirmPage({ params }: Props) {
 
   return (
     <main className="mx-auto max-w-lg px-4 py-16">
-      {pixelId && (
+      {(pixelId || gaId) && (
         <PurchaseTracker
           pixelId={pixelId}
           eventId={orderId}

@@ -2,14 +2,13 @@
 
 import { useEffect } from "react";
 import {
-  CURRENCY,
   initWithPhone,
-  track,
+  trackPurchase,
   type PixelContent,
-} from "@/lib/storefront/pixel";
+} from "@/lib/storefront/analytics";
 
 /**
- * Fires the Meta `Purchase` event on the order confirmation page.
+ * Fires the Meta `Purchase` and GA4 `purchase` events on the order confirmation page.
  *
  * WHEN THIS FIRES — and why it will not match /admin/analytics.
  * This fires at order *placement*, the moment DHD hands back a tracking
@@ -28,9 +27,8 @@ import {
  *
  * DEDUPLICATION. The confirm page is refreshable and its URL is shareable, so
  * this component can mount many times for one order. `eventId` is the order id
- * (the DHD tracking number); Meta deduplicates on (event_name, event_id) for
- * 48h, which covers refreshes and other browsers alike. The sessionStorage
- * guard is only a cheap local short-circuit on top of that.
+ * (the DHD tracking number); Meta and GA4 deduplicate on order reference.
+ * The sessionStorage guard is a cheap local short-circuit on top of that.
  *
  * `value` is merchandise only — the delivery tarif is excluded, because it is
  * passed straight through to DHD and swings by wilaya, which would make Meta
@@ -44,7 +42,7 @@ export default function PurchaseTracker({
   contents,
   phone,
 }: {
-  pixelId: string;
+  pixelId?: string | null;
   eventId: string;
   value: number;
   contentIds: string[];
@@ -52,7 +50,7 @@ export default function PurchaseTracker({
   phone: string | null;
 }) {
   useEffect(() => {
-    const key = `fb_purchase_${eventId}`;
+    const key = `purchase_${eventId}`;
     try {
       if (sessionStorage.getItem(key)) return;
       sessionStorage.setItem(key, "1");
@@ -61,21 +59,17 @@ export default function PurchaseTracker({
     }
 
     // Advanced Matching: the phone number is only known here, at the end of
-    // the funnel. Re-init before tracking so the Purchase carries it.
-    initWithPhone(pixelId, phone);
+    // the funnel. Re-init before tracking so the Purchase carries it if pixel is present.
+    if (pixelId) {
+      initWithPhone(pixelId, phone);
+    }
 
-    track(
-      "Purchase",
-      {
-        value,
-        currency: CURRENCY,
-        content_type: "product",
-        content_ids: contentIds,
-        contents,
-        num_items: contents.reduce((sum, c) => sum + c.quantity, 0),
-      },
+    trackPurchase({
       eventId,
-    );
+      value,
+      contentIds,
+      contents,
+    });
   }, [pixelId, eventId, value, contentIds, contents, phone]);
 
   return null;

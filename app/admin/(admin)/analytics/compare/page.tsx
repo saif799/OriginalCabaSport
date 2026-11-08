@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, GitCompareArrows } from "lucide-react";
 import { asc } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { shoeModels } from "@/lib/schema";
@@ -74,12 +74,20 @@ export default async function ComparePage({
       title="Compare models"
       description="Pick two or more models to compare their sales, returns and size demand over a period."
       actions={
-        <Link
-          href="/admin/analytics"
-          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="h-4 w-4" /> Analytics
-        </Link>
+        <div className="flex items-center gap-3">
+          <Link
+            href="/admin/analytics/compare-months"
+            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+          >
+            <GitCompareArrows className="h-4 w-4" /> Compare months
+          </Link>
+          <Link
+            href="/admin/analytics"
+            className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+          >
+            <ArrowLeft className="h-4 w-4" /> Analytics
+          </Link>
+        </div>
       }
     >
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">

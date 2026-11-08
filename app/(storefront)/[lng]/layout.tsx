@@ -4,6 +4,7 @@ import StoreHeader from "@/components/storefront/StoreHeader";
 import StoreFooter from "@/components/storefront/StoreFooter";
 import JsonLd from "@/components/storefront/JsonLd";
 import MetaPixel from "@/components/storefront/MetaPixel";
+import GoogleAnalytics from "@/components/storefront/GoogleAnalytics";
 import { BRAND, organizationJsonLd, websiteJsonLd } from "@/lib/storefront/seo";
 import { getResources, getT } from "@/app/i18n/server";
 import { NAMESPACES, isLocale } from "@/i18n.config";
@@ -32,6 +33,8 @@ export default async function StorefrontLayout({
   // shared with /admin, and this route group is exactly the storefront
   // boundary. Unset (dev, previews) renders nothing at all.
   const pixelId = process.env.FB_PIXEL_ID;
+  const gaId =
+    process.env.GA_MEASUREMENT_ID || process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID;
 
   const { i18n } = await getT(lng);
   // The store-level JSON-LD carries prose, so it is translated like any other
@@ -69,6 +72,7 @@ export default async function StorefrontLayout({
           data={websiteJsonLd(lng, t("home:metaDescription", { brand: BRAND.name }))}
         />
         {pixelId && <MetaPixel pixelId={pixelId} />}
+        {gaId && <GoogleAnalytics gaId={gaId} />}
         <StoreHeader />
         {/* Offsets the fixed 64px nav. */}
         <main className="flex-1 pt-(--sf-nav-h)">{children}</main>
