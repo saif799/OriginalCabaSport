@@ -2,7 +2,9 @@ import { cache } from "react";
 import { db, type Executor } from "@/lib/db";
 import { shoes, shoeInventory, shoeModels, shoeImages } from "@/lib/schema";
 import { eq, gt, inArray, asc, sql, and, or, gte, lte, ilike, type SQL } from "drizzle-orm";
-import { resolveProductPrice, resolveCompareAtPrice } from "@/lib/helpers";
+import { resolveProductPrice, resolveCompareAtPrice, getEffectiveProductPrice, type ProductWithPriceAndSizes } from "@/lib/helpers";
+
+export { getEffectiveProductPrice, type ProductWithPriceAndSizes };
 
 /** Search text, model/size membership and a price range — all resolved in SQL. */
 export type StorefrontProductFilters = {

@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import ProductCard from "@/components/storefront/ProductCard";
@@ -106,7 +107,8 @@ export default async function CollectionPage({ params }: Props) {
         </p>
       )}
 
-      {collection.products.length === 0 ? (
+      <Suspense>
+        {collection.products.length === 0 ? (
         <div className="py-16 text-center">
           <p className="sf-body text-sm font-normal text-(--sf-muted)">
             {t("catalog:collection.empty")}
@@ -125,6 +127,7 @@ export default async function CollectionPage({ params }: Props) {
           ))}
         </div>
       )}
+      </Suspense>
     </div>
   );
 }

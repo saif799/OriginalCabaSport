@@ -16,6 +16,7 @@ import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerTrigger } from 
 import { SlidersHorizontal, ArrowDownUp, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { StorefrontProduct } from "@/lib/storefront/products";
+import { getEffectiveProductPrice } from "@/lib/helpers";
 import { useT } from "@/app/i18n/client";
 
 type SortOption = "nouveautes" | "prix-asc" | "prix-desc";
@@ -90,7 +91,8 @@ export default function ProductsBrowser({
       if (filterParams.minPrice || filterParams.maxPrice) {
         const min = filterParams.minPrice ? Number(filterParams.minPrice) : 0;
         const max = filterParams.maxPrice ? Number(filterParams.maxPrice) : Infinity;
-        if (!(p.minPrice >= min && p.minPrice <= max)) return false;
+        const effectivePrice = getEffectiveProductPrice(p, filterParams.sizes);
+        if (!(effectivePrice >= min && effectivePrice <= max)) return false;
       }
 
       return true;
@@ -99,11 +101,22 @@ export default function ProductsBrowser({
 
   const sorted = useMemo(() => {
     const copy = [...filtered];
-    if (sort === "prix-asc") copy.sort((a, b) => a.minPrice - b.minPrice);
-    else if (sort === "prix-desc") copy.sort((a, b) => b.minPrice - a.minPrice);
+    if (sort === "prix-asc") {
+      copy.sort(
+        (a, b) =>
+          getEffectiveProductPrice(a, filterParams.sizes) -
+          getEffectiveProductPrice(b, filterParams.sizes),
+      );
+    } else if (sort === "prix-desc") {
+      copy.sort(
+        (a, b) =>
+          getEffectiveProductPrice(b, filterParams.sizes) -
+          getEffectiveProductPrice(a, filterParams.sizes),
+      );
+    }
     // "nouveautes": keep the server order (already newestAt DESC).
     return copy;
-  }, [filtered, sort]);
+  }, [filtered, sort, filterParams.sizes]);
 
   const updateSearch = (value: string) => {
     setFilterParams((prev) => ({ ...prev, ProductName: value }));
@@ -277,7 +290,12 @@ export default function ProductsBrowser({
           ) : (
             <div className="grid grid-cols-2 gap-3 pb-10 pt-2 md:grid-cols-3 md:gap-4">
               {sorted.map((product, i) => (
-                <ProductCard key={product.shoeId} product={product} priority={i < 6} />
+                <ProductCard
+                  key={product.shoeId}
+                  product={product}
+                  selectedSizes={filterParams.sizes}
+                  priority={i < 6}
+                />
               ))}
             </div>
           )}

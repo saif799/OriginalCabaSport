@@ -1,12 +1,15 @@
 "use client";
 
+import { useMemo } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import ProductMedia from "./ProductMedia";
 import ProductPrice from "./ProductPrice";
 import { cn } from "@/lib/utils";
 import type { StorefrontProduct } from "@/lib/storefront/products";
 import { useLocalePath, useT } from "@/app/i18n/client";
 import Ltr from "@/components/storefront/Ltr";
+import { getEffectiveProductPrice } from "@/lib/helpers";
 
 /** Cards are narrow (2 columns on mobile), so the run of sizes is capped and
  *  the remainder collapses into a "+N" — never a second wrapped line. */
@@ -30,13 +33,31 @@ export default function ProductCard({
   product,
   className,
   priority = false,
+  selectedSizes,
 }: {
   product: StorefrontProduct;
   className?: string;
   priority?: boolean;
+  selectedSizes?: (number | string)[];
 }) {
   const { t } = useT("catalog");
   const localeHref = useLocalePath();
+  const searchParams = useSearchParams();
+
+  const activeSizes = useMemo(() => {
+    if (selectedSizes !== undefined) return selectedSizes;
+    const fromQuery = searchParams.get("sizes");
+    if (!fromQuery) return [];
+    return fromQuery
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }, [selectedSizes, searchParams]);
+
+  const displayPrice = useMemo(
+    () => getEffectiveProductPrice(product, activeSizes),
+    [product, activeSizes],
+  );
 
   const inStockSizes = product.sizes
     .filter((s) => s.quantity > 0)
@@ -73,7 +94,7 @@ export default function ProductCard({
           {product.modelName}
         </h3>
         <ProductPrice
-          price={product.minPrice}
+          price={displayPrice}
           compareAtPrice={product.compareAtPrice}
           size="sm"
         />
