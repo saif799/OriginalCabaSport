@@ -4,6 +4,7 @@ import { borrower } from "@/lib/schema";
 import { asc } from "drizzle-orm";
 import BorrowerActions from "@/components/borrowerActions";
 import AdminPage from "@/components/admin/AdminPage";
+import CreateBorrowerDialog from "@/components/CreateBorrowerDialog";
 
 export default async function BorrowersPage() {
   const borrowers = await db
@@ -19,11 +20,15 @@ export default async function BorrowersPage() {
       title="Borrowers"
       description="Select a borrower to view their lended inventory."
       width="narrow"
+      actions={<CreateBorrowerDialog />}
     >
       {borrowers.length === 0 ? (
-        <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
-          No borrowers found yet.
-        </p>
+        <div className="flex flex-col items-center justify-center rounded-md border border-dashed p-8 text-center">
+          <p className="text-sm text-muted-foreground">No borrowers found yet.</p>
+          <div className="mt-4">
+            <CreateBorrowerDialog />
+          </div>
+        </div>
       ) : (
         <div className="grid gap-3">
           {borrowers.map((item) => (
