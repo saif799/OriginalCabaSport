@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { DM_Mono, Cairo, Anton } from "next/font/google";
+import { DM_Mono, Anton } from "next/font/google";
+import localFont from "next/font/local";
 import { Analytics } from "@vercel/analytics/next";
 import { dir } from "i18next";
 // @ts-ignore - Next.js global stylesheet side-effect import is resolved at build time
@@ -32,13 +33,27 @@ const dmMono = DM_Mono({
 // files to Latin visitors: `preload: false` (issue #20) keeps the @font-face
 // declaration everywhere but drops the unconditional <link rel="preload">, so
 // a locale that never resolves a --sf-font token onto Cairo fetches none of
-// its glyph files. /ar still fetches them, on use. Do not restore the preload
-// as an obvious omission, and do not narrow the subsets instead — if a /fr
-// page fetches a Cairo file, the cause is a CSS rule resolving --sf-font onto
-// Cairo outside html[lang|="ar"]; fix the rule.
-const cairo = Cairo({
-  subsets: ["arabic", "latin"],
-  weight: ["400", "500"],
+// its glyph files. /ar still fetches them, on use.
+// Bundled locally via next/font/local so Vercel builds do not depend on
+// external Google Fonts network fetches.
+const cairo = localFont({
+  src: [
+    {
+      path: "../public/fonts/cairo-arabic.woff2",
+      weight: "400 500",
+      style: "normal",
+    },
+    {
+      path: "../public/fonts/cairo-latin-ext.woff2",
+      weight: "400 500",
+      style: "normal",
+    },
+    {
+      path: "../public/fonts/cairo-latin.woff2",
+      weight: "400 500",
+      style: "normal",
+    },
+  ],
   variable: "--font-cairo",
   preload: false,
 });
